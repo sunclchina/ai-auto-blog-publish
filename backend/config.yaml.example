@@ -1,0 +1,115 @@
+# ============================================================================
+# A-Blog 伴生服务 · 配置模板
+# 用法: 复制为 backend/config.yaml 后按需修改 (install.sh 会自动完成复制)
+#     cp config.yaml.example config.yaml
+# 安全: 本文件不含任何密钥! 密钥字段全部留空, 由环境变量注入
+#     (systemd EnvironmentFile=backend/.env, 详见 deploy/security.md)
+# 加载优先级: 环境变量 > 本文件; 必填密钥缺失时 config.py 拒绝启动,
+#     不静默降级 (对应架构 3.4 "no_model_configured" 拦截, 不消耗 Token)。
+# 修改配置后: systemctl restart ablog (Linux) 或重启 uvicorn (开发机)
+# ============================================================================
+
+# ---------------- 服务监听 (原则7: 固定 127.0.0.1:8080, 仅本机) ----------------
+server:
+  host: "127.0.0.1"      # 仅回环地址; 严禁改为 0.0.0.0 或公网 IP(对外不暴露)
+  port: 8080             # 固定端口 8080, 不得随意更改
+
+# ---------------- 路径 ----------------
+paths:
+  data_dir: "../data"    # SQLite(data/ablog.db) / logs/ / 图片缓存, 相对 backend/ 目录
+  sensitive_words: "../data/sensitive_words.txt"   # 敏感词表(每行一词, 可编辑, 缺失自动创建)
+
+# ---------------- 日志 ----------------
+logging:
+  level: "INFO"          # DEBUG / INFO / WARNING / ERROR
+  dir: "../data/logs"    # 与 data_dir/logs 一致
+  rotate_days: 30        # 日志文件保留天数
+
+# ---------------- 栏目开关 (总开关关闭则全部栏目不生成) ----------------
+columns:
+  master_switch: true    # AI 写文总开关
+
+  # A股复盘: 仅交易日 20:00 由 crontab 触发, 此处控制开关与每周上限
+  stock:
+    enabled: true
+    max_per_week: 5      # 每周上限(一周最多 5 个交易日)
+
+  # IT技术笔记: 每周 1-3 篇, 选题来源 热点 + 问题库
+  tech:
+    enabled: true
+    max_per_week: 3
+
+  # 读书与国学: 国学优先唐诗三百首/宋词三百首/古文观止
+  reading:
+    enabled: true
+    max_per_week: 2
+
+  # 书评: 从站点书目库随机抽未写书目
+  book:
+    enabled: true
+    max_per_week: 2
+    exclude_written: true   # 已写书目永不二次生成 (written_books 表防重复)
+
+# ---------------- 每日额度与风控 (架构第 6 节) ----------------
+quota:
+  daily_max_articles: 3      # 每日发文总量上限, 范围 1-10
+  daily_token_quota: 200000  # 每日 Token 额度, 超限当日拦截(不消耗)
+  rotation:                  # 栏目轮换比例(合计=100, 队列生成时按此配比)
+    stock: 40                # A股复盘 40%
+    tech: 30                 # IT技术笔记 30%
+    reading_book: 30         # 国学+书评 30%
+  retry_times: 2             # 网络类错误重试次数(指数退避); 内容类错误不重试
+  circuit_breaker:
+    consecutive_failures: 5  # 同一模型连续失败 N 次 → 熔断暂停
+    cooldown_minutes: 30     # 暂停该模型 N 分钟
+
+# ---------------- 模拟人工时段 (发布时间在该时段内随机分钟) ----------------
+publish_window:
+  start: "09:00"
+  end: "21:00"
+
+# ---------------- WordPress 对接 (REST 契约, 架构 3.2) ----------------
+wordpress:
+  base_url: "https://sunclnas.cn"    # WP 站点地址, 勿带尾部斜杠
+  api_token: ""                      # 插件设置页生成的 ABP_API_TOKEN;
+                                     # 留空 = 从环境变量 ABP_WP_TOKEN 注入
+  categories:                        # 分类 slug, 不存在时插件自动创建(架构 7)
+    stock: "a-share-review"
+    tech: "it-notes"
+    reading: "reading-classics"
+  publish_status: "draft"            # draft / publish / future; 首次联调建议 draft
+  featured_image: true               # 配图开关: false = 纯文字发布
+
+# ---------------- AI 模型映射 (单 key 多模型, 契约 3.4) ----------------
+models:
+  provider: "deepseek"   # deepseek | volc(豆包) | qwen(通义, OpenAI 兼容端点)
+  deepseek:
+    base_url: "https://api.deepseek.com"
+    # 密钥不写在此处! 从环境变量 ABP_DEEPSEEK_KEY 注入 (backend/.env, chmod 600)
+    models:              # 各栏目使用的模型名, 均可改
+      stock: "deepseek-chat"
+      tech: "deepseek-chat"          # 技术文可配 deepseek-coder
+      reading: "deepseek-chat"
+      reasoning: "deepseek-reasoner" # 选题/大纲等推理步骤(可选)
+  volc:                  # 豆包(可选): 启用需设 provider=volc 且注入 ABP_VOLC_KEY
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    models:
+      reading: "doubao-pro-32k"
+  qwen:                  # 通义(可选): 启用需设 provider=qwen 且注入 ABP_QWEN_KEY
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    models:
+      reading: "qwen-plus"
+  image:                 # 配图模型(可选): 未配置则纯文字发布
+    enabled: true
+    provider: ""         # 生图服务商标识; key 从环境变量 ABP_IMAGE_KEY 注入
+    model: ""            # 如 dall-e-3 / flux 等, 由服务商决定
+
+# ---------------- 密钥字段汇总 (全部留空, 禁止写入真实值!) ----------------
+# 部署时统一写入 backend/.env, 由 systemd EnvironmentFile 注入进程环境;
+# config.py 按以下变量名读取, 缺失即报错(必填项)或按未配置处理(可选项)。
+secrets:
+  deepseek_key: ""   # ← 从环境变量 ABP_DEEPSEEK_KEY 注入 (必填, 当 provider=deepseek)
+  volc_key: ""       # ← 从环境变量 ABP_VOLC_KEY 注入 (可选)
+  qwen_key: ""       # ← 从环境变量 ABP_QWEN_KEY 注入 (可选)
+  image_key: ""      # ← 从环境变量 ABP_IMAGE_KEY 注入 (可选)
+  wp_token: ""       # ← 从环境变量 ABP_WP_TOKEN 注入 (必填, 发布用)
