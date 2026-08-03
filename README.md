@@ -97,6 +97,16 @@ Linux 部署详见 `deploy/README.md`。
 - API Token、模型 Key、Tavily Key 仅存 WP option / secret 文件 / 环境变量，**不入日志、不入库**（见 `.gitignore`）
 - 前端调用一律走 `?rest_route=` 形式（兼容 IIS 无 URL Rewrite）
 
+
+## 支持与赞赏
+
+如果 A-Blog 对你有帮助，欢迎赞赏支持：
+
+![赞赏码](assets/赞赏码.jpg)
+
 ## 许可
+
+GPLv2 or later（插件部分）。
+
 
 GPLv2 or later（插件部分）。
