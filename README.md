@@ -102,7 +102,7 @@ Linux 部署详见 `deploy/README.md`。
 
 如果 A-Blog 对你有帮助，欢迎赞赏支持：
 
-![赞赏码](assets/赞赏码.jpg)
+<img src="assets/赞赏码.jpg" alt="赞赏码" width="200" />
 
 ## 许可
 
