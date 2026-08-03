@@ -1,0 +1,14 @@
+# A-Blog Linux Crontab 模板（部署时按实际路径调整后启用）
+# 部署目录示例：/opt/A-Blog（与项目根一致，data/logs 在其下）
+# 日志统一进 data/logs，不写系统日志
+
+# 每日 08:30 生成当日任务队列（内部按交易日历/栏目开关/配额过滤；
+# 非交易日自动排除复盘栏目）
+30 8 * * * cd /opt/A-Blog && /usr/bin/python3 -m backend.scheduler.daily_queue --build-today >> /opt/A-Blog/data/logs/cron.log 2>&1
+
+# 每 30 分钟检查到期可发布任务（发布时间已在窗口内随机算好；
+# 复盘任务 20:00 由窗口配置保证落在 20:00 前后）
+*/30 8-22 * * * cd /opt/A-Blog && /usr/bin/python3 -m backend.scheduler.daily_queue --publish-due >> /opt/A-Blog/data/logs/cron.log 2>&1
+
+# 可选：健康检查告警（curl 本机 8080，异常时通知）
+# 0 9 * * * curl -fsS http://127.0.0.1:8080/healthz >/dev/null || echo "A-Blog healthz failed" >> /opt/A-Blog/data/logs/cron.log

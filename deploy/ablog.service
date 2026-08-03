@@ -1,0 +1,47 @@
+# ============================================================================
+# A-Blog 伴生服务 · systemd 单元模板
+# 部署: install.sh 会自动把本文件安装为 /etc/systemd/system/ablog.service
+#       (并将路径 /opt/ablog 替换为实际安装目录)
+# 手动部署:  sudo cp ablog.service /etc/systemd/system/ && sudo systemctl daemon-reload
+# 启动:      sudo systemctl enable --now ablog
+# 关键点:    固定监听 127.0.0.1:8080 (原则7, 仅本机回环)
+# ============================================================================
+
+[Unit]
+Description=A-Blog Python 伴生服务 (FastAPI @ 127.0.0.1:8080)
+Documentation=file:///opt/ablog/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# 专用低权限用户(install.sh 创建, nologin)
+User=ablog
+Group=ablog
+
+WorkingDirectory=/opt/ablog/backend
+
+# 密钥注入: .env (chmod 600) 由 EnvironmentFile 加载, 不入库不入日志
+EnvironmentFile=/opt/ablog/backend/.env
+
+# 启动命令: venv 内 uvicorn, 绑定 127.0.0.1:8080
+ExecStart=/opt/ablog/backend/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8080
+
+# 崩溃自动拉起
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# ---- 安全加固 (systemd 沙箱) ----
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full                 # /usr /boot /etc 只读
+ProtectHome=true                   # 禁止访问 /home /root
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ReadWritePaths=/opt/ablog/data     # 仅 data/ 可写(SQLite/日志/图片缓存)
+
+[Install]
+WantedBy=multi-user.target

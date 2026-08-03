@@ -1,0 +1,11 @@
+# A-Blog Python 伴生服务 · 依赖清单
+# 安装: pip install -r requirements.txt
+# 目标: Python 3.10+ (开发 Windows / 部署 Linux 通用)
+
+fastapi>=0.111,<1.0            # Web 框架: /healthz 与 /api/* 端点
+uvicorn[standard]>=0.30,<1.0   # ASGI 服务器 (固定 127.0.0.1:8080)
+pyyaml>=6.0,<7.0               # 配置加载 config.yaml
+httpx>=0.27,<1.0               # 异步 HTTP 客户端 (WP REST / 模型接口)
+Pillow>=10.0,<12.0             # 封面图 1280x720 处理 / WebP 转换
+requests>=2.31,<3.0            # 同步 HTTP (通达信/新浪/东财数据源兜底)
+pytest>=8.0,<9.0               # 单元测试 (日历/指纹/风控/配置/agent mock)

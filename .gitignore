@@ -1,0 +1,10 @@
+# 敏感与运行时文件（绝不入库）
+data/wp_token.txt
+data/tavily_key.txt
+data/*.db
+data/*.db-journal
+*.log
+__pycache__/
+*.pyc
+.venv/
+dist/
