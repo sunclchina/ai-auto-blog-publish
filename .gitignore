@@ -3,8 +3,12 @@ data/wp_token.txt
 data/tavily_key.txt
 data/*.db
 data/*.db-journal
+data/*.db-shm
+data/*.db-wal
 *.log
 __pycache__/
 *.pyc
 .venv/
 dist/
+# 凭据文件（绝不入库）
+*.git-credentials

@@ -161,7 +161,7 @@ _topic_providers: Dict[str, Callable] = {}
 def register_topic_provider(column: str, fn: Callable) -> None:
     """注册选题提供方：fn(date: datetime.date, column: str) -> str 选题描述。
     由 collectors/agents 模块在启动时调用。"""
-    if column not in ("stock", "tech", "reading", "book"):
+    if column not in ("stock", "tech", "reading", "book", "industry"):
         raise ValueError(f"unknown column: {column}")
     _topic_providers[column] = fn
 
@@ -736,7 +736,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--pool", action="store_true", help="填充备用选题池（本地素材成题，无需 API Key）")
     parser.add_argument("--pool-count", type=int, default=3, help="每栏目填充条数（默认 3）")
     parser.add_argument("--run", action="store_true", help="执行 queued 任务（AI 流水线→发布到点任务）")
-    parser.add_argument("--column", choices=("stock", "tech", "reading", "book"), default=None,
+    parser.add_argument("--column", choices=("stock", "tech", "reading", "book", "industry"), default=None,
                         help="仅处理某栏目（如 20:00 复盘专用 --column stock --run）")
     parser.add_argument("--build-today", action="store_true", help="兼容别名：等价 --generate")
     parser.add_argument("--publish-due", action="store_true", help="兼容别名：仅发布到期任务（不生成）")

@@ -69,6 +69,11 @@ def register_topic_providers(config=None):
                     core = build_core_adapter(config, None)
                     b = BooksCollector(config, core=core).collect()
                     return f"书评《{b['title']}》{b.get('author') or ''}".strip() if b else ""
+                if col == "industry":
+                    from collectors.industry import IndustryCollector
+                    data = IndustryCollector(config).collect(limit=1, deep_top=0) or {}
+                    inds = data.get("hot_industries") or []
+                    return str(inds[0].get("name") or "") if inds else ""
             except Exception as e:
                 import logging
                 logging.getLogger("ablog.collectors").warning("选题提供方 %s 采集异常已兜底: %s", col, e)
@@ -76,6 +81,6 @@ def register_topic_providers(config=None):
             return ""
         return _fn
 
-    for col in ("stock", "tech", "reading", "book"):
+    for col in ("stock", "tech", "reading", "book", "industry"):
         register_topic_provider(col, _provider(col))
     return True

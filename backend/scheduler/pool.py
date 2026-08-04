@@ -21,7 +21,7 @@ from typing import Dict, List, Optional
 
 from core import db, logger
 
-VALID_COLUMNS = ("stock", "tech", "reading", "book")
+VALID_COLUMNS = ("stock", "tech", "reading", "book", "industry")
 
 # 备选池容量上限（翁老需求：超过 20 条不再自动生成）
 POOL_LIMIT = 20
@@ -132,6 +132,15 @@ def delete_pool(pool_id: int) -> dict:
     return {"ok": True, "deleted": pool_id}
 
 
+def clear_pool() -> int:
+    """一键清空：软删全部排队中的备用选题，返回清空条数（已用/已删历史保留）。"""
+    rows = db.query("SELECT id FROM topic_pool WHERE status='queued'")
+    for r in rows:
+        db.execute("UPDATE topic_pool SET status='deleted' WHERE id=?", (r["id"],))
+    logger.info(f"pool clear all queued: {len(rows)}")
+    return len(rows)
+
+
 def reorder_pool(ids: List[int]) -> List[dict]:
     """按给定 id 顺序重写 sort_order（仅 queued）。"""
     updated = []
@@ -176,8 +185,8 @@ def local_generate(column: str, cfg, n: int = 3) -> List[str]:
     try:
         if column == "tech":
             from collectors.tech_topics import TechTopicCollector
-            data = TechTopicCollector(cfg).collect() or {}
-            for q in (data.get("questions") or [])[:n]:
+            qs = TechTopicCollector(cfg).collect(n=n) or []
+            for q in qs[:n]:
                 t = str(q.get("question") or "").strip()
                 if t:
                     topics.append(t)
@@ -194,6 +203,18 @@ def local_generate(column: str, cfg, n: int = 3) -> List[str]:
             b = BooksCollector(cfg).collect()
             if b and b.get("title"):
                 topics.append(f"读《{b['title']}》：核心书评与阅读感悟")
+        elif column == "industry":
+            # 行业综述：Tavily 热门行业/概念发现（阶段1即可成题，不做深挖省时）
+            from collectors.industry import IndustryCollector
+            data = IndustryCollector(cfg).collect(limit=n, deep_top=0) or {}
+            for ind in (data.get("hot_industries") or [])[:n]:
+                name = str(ind.get("name") or "").strip()
+                if not name:
+                    continue
+                if re.search(r"(行业|概念|板块|产业链)$", name):
+                    topics.append(f"{name}：市场前景与景气龙头盘点")
+                else:
+                    topics.append(f"{name}行业：市场前景与景气龙头盘点")
     except Exception as e:
         logger.warning(f"local_generate failed column={column} err={e}")
     return topics[:n]

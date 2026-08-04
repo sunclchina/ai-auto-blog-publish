@@ -303,9 +303,9 @@ class CoreAdapter:
                 pass
         return _fallback_longtail(seed)
 
-    def internal_link_placeholder(self, keyword):
-        """内链占位：WP 侧发布时替换为真实站内链接。"""
-        return _fallback_internal_link(keyword)
+    def internal_link_placeholder(self, keyword, category=None):
+        """内链占位：显示"站内相关：{类别}"（WP 侧发布时替换为真实站内链接）。"""
+        return _fallback_internal_link(keyword, category)
 
     # ---- 书目防重复（written_books 表） ----
     def written_books(self):
@@ -363,9 +363,10 @@ def _fallback_longtail(keyword):
     return [f"{keyword}教程", f"{keyword}常见问题", f"{keyword}实操指南", f"{keyword}经验分享"]
 
 
-def _fallback_internal_link(keyword):
-    """[CORE_FALLBACK] 内链占位：WP 侧发布时替换为真实站内链接。"""
-    return f'<a href="/?s={keyword}" title="站内相关：{keyword}">站内相关：{keyword}</a>'
+def _fallback_internal_link(keyword, category=None):
+    """[CORE_FALLBACK] 内链占位：显示"站内相关：{类别}"（无类别时退化为关键词），WP 侧发布时替换为真实站内链接。"""
+    label = (category or keyword or "").strip()
+    return f'<a href="/?s={keyword}" title="站内相关：{label}">站内相关：{label}</a>'
 
 
 # =====================================================================

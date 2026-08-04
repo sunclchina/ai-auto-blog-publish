@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -67,6 +67,13 @@ A-Blog 是「AI 全自动博客」系统的 WordPress 发布端插件，配合 P
 
 == Changelog ==
 
+= 1.2.0 =
+* 新增 GitHub Release 自动升级：后台配置仓库（默认 sunclchina/ai-auto-blog-publish）+ 开关 + 可选 Token，插件定期检查新版本，后台「插件」页出现标准更新提示，一键升级
+* 备用选题池新增「一键清空」（软删全部排队选题，保留已用历史）
+* 正文内链占位「站内相关」改为显示文章类别（A股每日复盘 / IT技术笔记 / 读书与国学 / 行业），所有栏目统一生效
+* 行业栏目正式接入备选题池与后台开关（A股热门行业/概念成题，Tavily 驱动）
+* 修复：备选题池 IT 栏目填充静默失败（采集器返回列表却按字典取值）
+
 = 1.1.0 =
 * AI 工具箱：AI 摘要（已有直接覆盖重写）/ AI 评论（条数 1-30、待审核或直接显示）/ 热门话题（自动归档到「话题」分类并生成话题简介）
 * AI 工具箱批量：文章多选列表（摘要 / 评论数 / 话题状态一目了然），批量生成摘要 / 评论 / 热门话题，实时进度
@@ -80,6 +87,10 @@ A-Blog 是「AI 全自动博客」系统的 WordPress 发布端插件，配合 P
 * 首发版本：REST 接收、SimHash 查重、自动建文/分类/标签/配图/定时发布、模型配置探测、后台设置页与任务日志
 
 == Upgrade Notice ==
+
+= 1.2.0 =
+* 升级后到「AI 自动博客 → 配置表单 → 自动升级」确认仓库地址（默认已填 sunclchina/ai-auto-blog-publish）；如需从本机 Gitea 或自建源升级，改填对应仓库即可。
+
 
 = 1.1.0 =
 * 升级后建议重新生成 API Token；工具箱与批量功能在后台「AI 自动博客」页面使用。
