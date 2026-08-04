@@ -193,6 +193,15 @@ class ABP_REST {
 		);
 		register_rest_route(
 			ABP_API_NAMESPACE,
+			'/pool/clear',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_pool_clear' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
+		register_rest_route(
+			ABP_API_NAMESPACE,
 			'/pool/(?P<pool_id>\d+)/plan',
 			array(
 				'methods'             => 'POST',
@@ -372,6 +381,13 @@ class ABP_REST {
 	 */
 	public static function handle_pool_delete( $request ) {
 		return self::proxy( 'DELETE', '/api/pool/' . intval( $request['pool_id'] ) );
+	}
+
+	/**
+	 * POST /pool/clear —— 一键清空备用选题池（软删全部排队，保留已用历史）。
+	 */
+	public static function handle_pool_clear( $request ) {
+		return self::proxy( 'POST', '/api/pool/clear' );
 	}
 
 	/* ---- AI 工具箱端点（本地处理，不走 Python 代理） ---- */
