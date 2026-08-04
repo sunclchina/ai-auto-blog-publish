@@ -309,6 +309,30 @@
 			} );
 		}
 
+		/* 修复旧文「站内相关」为类别名 */
+		var fixRelatedBtn = document.getElementById( 'abp-toolbox-fix-related' );
+		var fixRelatedMsg = document.getElementById( 'abp-toolbox-fix-msg' );
+		if ( fixRelatedBtn ) {
+			fixRelatedBtn.addEventListener( 'click', function () {
+				if ( ! window.confirm( '将全站文章中的「站内相关：关键词」统一替换为「站内相关：文章分类名」？会改动已发布文章正文，建议先备份数据库。' ) ) { return; }
+				fixRelatedBtn.disabled = true;
+				if ( fixRelatedMsg ) { fixRelatedMsg.textContent = '处理中…'; fixRelatedMsg.style.color = ''; }
+				fetch( abp.toolboxUrl + '/fix-related', {
+					method: 'POST', headers: headers(), credentials: 'same-origin'
+				} ).then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '响应解析失败 HTTP ' + r.status }; } ); } )
+					.then( function ( d ) {
+						if ( d && d.ok ) {
+							if ( fixRelatedMsg ) { fixRelatedMsg.textContent = '完成：处理 ' + d.processed + ' 篇，更新 ' + d.updated + ' 篇，跳过 ' + d.skipped + ' 篇'; fixRelatedMsg.style.color = '#00a32a'; }
+						} else if ( fixRelatedMsg ) {
+							fixRelatedMsg.textContent = '失败：' + ( ( d && ( d.error || d.message || d.detail ) ) || '未知错误' );
+							fixRelatedMsg.style.color = '#b32d2e';
+						}
+					} )
+					.catch( function ( e ) { if ( fixRelatedMsg ) { fixRelatedMsg.textContent = '网络错误：' + ( e && e.message ? e.message : e ); fixRelatedMsg.style.color = '#b32d2e'; } } )
+					.finally( function () { fixRelatedBtn.disabled = false; } );
+			} );
+		}
+
 		/* 行内操作（事件委托） */
 		document.addEventListener( 'click', function ( ev ) {
 			var el = ev.target;

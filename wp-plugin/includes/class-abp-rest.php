@@ -265,6 +265,15 @@ class ABP_REST {
 				'permission_callback' => array( __CLASS__, 'check_token' ),
 			)
 		);
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/toolbox/fix-related',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_toolbox_fix_related' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
 	}
 
 	/**
@@ -500,6 +509,50 @@ class ABP_REST {
 			'ok'      => true,
 			'post_id' => $pid,
 			'topics'  => $r['topics'],
+		), 200 ) );
+	}
+
+	/**
+	 * POST /toolbox/fix-related —— 修复旧文「站内相关」：按文章分类批量替换
+	 * 「站内相关：任意关键词」→「站内相关：{该文分类名}」（正文与 title 属性同时替换）。
+	 *
+	 * @return WP_REST_Response
+	 */
+	public static function handle_toolbox_fix_related( $request ) {
+		$processed = 0;
+		$updated   = 0;
+		$skipped   = 0;
+		$posts = get_posts( array(
+			'post_type'      => 'post',
+			'post_status'    => array( 'publish', 'draft', 'future', 'pending' ),
+			'posts_per_page' => -1,
+			's'              => '站内相关：',
+			'fields'         => 'ids',
+		) );
+		foreach ( $posts as $pid ) {
+			$processed++;
+			$content = get_post_field( 'post_content', $pid );
+			if ( false === strpos( $content, '站内相关：' ) ) {
+				$skipped++;
+				continue;
+			}
+			$terms = wp_get_post_terms( $pid, 'category', array( 'fields' => 'names' ) );
+			$cat   = ( is_wp_error( $terms ) || empty( $terms ) ) ? '' : $terms[0];
+			if ( '' === $cat ) {
+				$skipped++;
+				continue;
+			}
+			$new_content = preg_replace( '/站内相关：[^<"\']*/u', '站内相关：' . $cat, $content );
+			if ( null !== $new_content && $new_content !== $content ) {
+				wp_update_post( array( 'ID' => $pid, 'post_content' => $new_content ) );
+				$updated++;
+			}
+		}
+		return rest_ensure_response( new WP_REST_Response( array(
+			'ok'        => true,
+			'processed' => $processed,
+			'updated'   => $updated,
+			'skipped'   => $skipped,
 		), 200 ) );
 	}
 

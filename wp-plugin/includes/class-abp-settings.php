@@ -684,6 +684,11 @@ class ABP_Settings {
 					<span class="abp-toolbox-sep">|</span>
 					<button type="button" class="button" id="abp-toolbox-topics">批量热门话题</button>
 				</div>
+				<div class="abp-toolbox-row" style="margin-top:8px;border-top:1px dashed #c3c4c7;padding-top:8px;">
+					<strong>维护工具：</strong>
+					<button type="button" class="button" id="abp-toolbox-fix-related">修复旧文「站内相关」为类别名</button>
+					<span id="abp-toolbox-fix-msg" class="description"></span>
+				</div>
 				<div id="abp-toolbox-result" class="abp-toolbox-result"></div>
 			</div>
 
