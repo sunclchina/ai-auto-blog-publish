@@ -35,6 +35,7 @@ class ABP_Settings {
 			'column_tech_enabled'   => 'on',
 			'column_reading_enabled'=> 'on',
 			'column_book_enabled'   => 'on',
+			'column_industry_enabled' => 'on',
 			'image_enabled'         => 'on',
 			'publish_enabled'       => 'on',
 			'flush_cache'           => 'on',
@@ -59,6 +60,11 @@ class ABP_Settings {
 			'api_token'             => '',
 			'max_tags'              => 10,
 			'python_base'           => '',   // Python 伴生服务地址，空=默认 http://127.0.0.1:8080
+			// GitHub 自动升级（v1.2.0）。
+			'auto_update_enabled'   => 'on',
+			'github_owner'          => 'sunclchina',
+			'github_repo'           => 'ai-auto-blog-publish',
+			'github_token'          => '',    // 可选：GitHub PAT，防 API 限流。
 		);
 	}
 
@@ -92,6 +98,8 @@ class ABP_Settings {
 		add_action( 'wp_ajax_abp_toolbox_posts', array( __CLASS__, 'ajax_toolbox_posts' ) );
 		// 备选题池栏目：现有文章分类列表。
 		add_action( 'wp_ajax_abp_pool_categories', array( __CLASS__, 'ajax_pool_categories' ) );
+		// GitHub 自动升级：检查更新。
+		add_action( 'wp_ajax_abp_check_update', array( __CLASS__, 'ajax_check_update' ) );
 	}
 
 	/**
@@ -173,7 +181,7 @@ class ABP_Settings {
 		$clean   = array();
 
 		// 开关类：只允许 on/off。
-		foreach ( array( 'ai_enabled', 'column_stock_enabled', 'column_tech_enabled', 'column_reading_enabled', 'column_book_enabled', 'image_enabled', 'publish_enabled', 'flush_cache' ) as $switch ) {
+		foreach ( array( 'ai_enabled', 'column_stock_enabled', 'column_tech_enabled', 'column_reading_enabled', 'column_book_enabled', 'column_industry_enabled', 'image_enabled', 'publish_enabled', 'flush_cache', 'auto_update_enabled' ) as $switch ) {
 			$clean[ $switch ] = ( isset( $input[ $switch ] ) && 'on' === $input[ $switch ] ) ? 'on' : 'off';
 		}
 
@@ -238,6 +246,17 @@ class ABP_Settings {
 
 		// Python 伴生服务地址（智能选题中心代理用）。
 		$clean['python_base'] = isset( $input['python_base'] ) ? untrailingslashit( esc_url_raw( (string) $input['python_base'] ) ) : '';
+
+		// GitHub 自动升级配置（owner/repo 白名单字符；token 留空沿用旧值）。
+		$clean['auto_update_enabled'] = ( isset( $input['auto_update_enabled'] ) && 'on' === $input['auto_update_enabled'] ) ? 'on' : 'off';
+		$gh_owner = isset( $input['github_owner'] ) ? sanitize_text_field( (string) $input['github_owner'] ) : '';
+		$gh_repo  = isset( $input['github_repo'] ) ? sanitize_text_field( (string) $input['github_repo'] ) : '';
+		$clean['github_owner'] = preg_match( '/^[A-Za-z0-9-]{1,39}$/', $gh_owner ) ? $gh_owner : 'sunclchina';
+		$clean['github_repo']  = preg_match( '/^[A-Za-z0-9_.-]{1,100}$/', $gh_repo ) ? $gh_repo : 'ai-auto-blog-publish';
+		$clean['github_token'] = isset( $old['github_token'] ) ? $old['github_token'] : '';
+		if ( isset( $input['github_token'] ) && '' !== trim( (string) $input['github_token'] ) ) {
+			$clean['github_token'] = sanitize_text_field( (string) $input['github_token'] );
+		}
 
 		return $clean;
 	}
@@ -394,6 +413,23 @@ class ABP_Settings {
 	}
 
 	/**
+	 * GitHub 自动升级：手动检查更新（AJAX）。
+	 *
+	 * @return void
+	 */
+	public static function ajax_check_update() {
+		check_ajax_referer( 'abp_log_refresh' );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( '权限不足' );
+		}
+		$r = ABP_Updater::force_check();
+		if ( empty( $r['ok'] ) ) {
+			wp_send_json_error( isset( $r['error'] ) ? $r['error'] : '检查失败' );
+		}
+		wp_send_json_success( $r );
+	}
+
+	/**
 	 * 渲染页面。
 	 *
 	 * @return void
@@ -433,6 +469,7 @@ class ABP_Settings {
 									<?php self::render_switch( 'column_tech_enabled', $settings, 'IT技术笔记' ); ?>
 									<?php self::render_switch( 'column_reading_enabled', $settings, '读书与国学' ); ?>
 									<?php self::render_switch( 'column_book_enabled', $settings, '书评（书目专评）' ); ?>
+									<?php self::render_switch( 'column_industry_enabled', $settings, '行业综述（A股热门行业/概念）' ); ?>
 								</td>
 							</tr>
 							<tr>
@@ -528,6 +565,27 @@ class ABP_Settings {
 								<th scope="row"><label for="abp_max_tags">单篇标签上限</label></th>
 								<td><input type="number" id="abp_max_tags" name="abp_settings[max_tags]" min="1" max="30" value="<?php echo esc_attr( $settings['max_tags'] ); ?>" class="small-text" /></td>
 							</tr>
+							<tr>
+								<th scope="row">自动升级<br /><small>GitHub Release</small></th>
+								<td>
+									<p><?php self::render_switch( 'auto_update_enabled', $settings, '开启后定期检查 GitHub 最新版本，后台「插件」页出现标准更新提示' ); ?></p>
+									<p>
+										<label for="abp_gh_owner">GitHub 仓库：</label>
+										<input type="text" id="abp_gh_owner" name="abp_settings[github_owner]" value="<?php echo esc_attr( $settings['github_owner'] ); ?>" class="small-text" placeholder="sunclchina" style="width:110px" /> /
+										<input type="text" id="abp_gh_repo" name="abp_settings[github_repo]" value="<?php echo esc_attr( $settings['github_repo'] ); ?>" class="regular-text" placeholder="ai-auto-blog-publish" style="width:220px" />
+										<span class="description">发布流程：GitHub 建 Release 打 tag（如 v1.2.0）并上传 <code>ai-auto-blog-publish-v1.2.0.zip</code></span>
+									</p>
+									<p>
+										<label for="abp_gh_token">GitHub Token（可选）：</label>
+										<input type="password" id="abp_gh_token" name="abp_settings[github_token]" value="" class="regular-text" autocomplete="new-password" placeholder="留空保持不变（未认证限 60 次/小时）" />
+									</p>
+									<p>
+										当前版本 v<?php echo esc_html( ABP_VERSION ); ?>
+										<button type="button" class="button button-small" id="abp-check-update">检查更新</button>
+										<span id="abp-update-status" class="description"></span>
+									</p>
+								</td>
+							</tr>
 						</table>
 
 						<?php submit_button( '保存设置' ); ?>
@@ -578,6 +636,7 @@ class ABP_Settings {
 				<h2>备用选题池（按计划排队，自动供每日任务取用）
 					<button type="button" class="button button-small" id="abp-refresh-pool">刷新</button>
 					<button type="button" class="button button-small" id="abp-pool-fill">智能填充</button>
+					<button type="button" class="button button-small" id="abp-pool-clear" style="color:#b32d2e;">一键清空</button>
 				</h2>
 				<p class="description">系统自动积累备用题目（预选题多余候选 / 本地素材生成）；可编辑、删除、↑↓ 调整排队顺序。每日任务按此顺序取用，取完自动标记已用。</p>
 				<div id="abp-pool-container"><p class="description">点击「刷新」加载备用选题池…</p></div>

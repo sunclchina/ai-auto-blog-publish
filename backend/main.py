@@ -116,7 +116,7 @@ def healthz() -> dict:
 def run_task(body: RunTaskBody) -> dict:
     """手动触发单任务。dry_run=true 时不消耗 Token。"""
     column = (body.column or "").strip().lower()
-    if column not in ("stock", "tech", "reading", "book"):
+    if column not in ("stock", "tech", "reading", "book", "industry"):
         raise HTTPException(status_code=400, detail=f"未知栏目: {column}")
     logger.info(f"run-task called column={column} topic={body.topic!r} dry_run={body.dry_run}")
     task = _run_pipeline(column, body.topic, body.material, bool(body.dry_run))
@@ -127,7 +127,7 @@ def run_task(body: RunTaskBody) -> dict:
 def dry_run(body: DryRunBody) -> dict:
     """dry_run 演示：真实采集器 + Mock 流水线，全程不消耗 Token。"""
     column = (body.column or "").strip().lower()
-    if column not in ("stock", "tech", "reading", "book"):
+    if column not in ("stock", "tech", "reading", "book", "industry"):
         raise HTTPException(status_code=400, detail=f"未知栏目: {column}")
     from agents.pipeline import PipelineAgent
     cfg = get_config()
@@ -386,12 +386,20 @@ def pool_reorder(body: PoolReorderBody) -> dict:
     return {"ok": True, "updated": updated, "count": len(updated)}
 
 
+@app.post("/api/pool/clear")
+def pool_clear() -> dict:
+    """一键清空备用选题池（软删全部排队中的选题，保留已用历史）。"""
+    from scheduler.pool import clear_pool
+    n = clear_pool()
+    return {"ok": True, "cleared": n}
+
+
 @app.post("/api/pool/fill")
 def pool_fill(column: Optional[str] = None, n: int = 3) -> dict:
     """本地素材生成备用题入池（无 API Key 可用）。body 或 query: column, n。"""
     from scheduler.pool import fill_pool
     from scheduler.daily_queue import enabled_columns
-    if column and column not in ("stock", "tech", "reading", "book"):
+    if column and column not in ("stock", "tech", "reading", "book", "industry"):
         raise HTTPException(status_code=400, detail=f"未知栏目: {column}")
     cols = [column] if column else enabled_columns()
     total = 0

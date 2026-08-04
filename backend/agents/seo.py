@@ -12,7 +12,7 @@ import re
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from agents.base import BaseAgent, LLMError, COLUMN_DEFAULT_TAGS  # noqa: E402
+from agents.base import BaseAgent, LLMError, COLUMN_DEFAULT_TAGS, COLUMN_CATEGORIES  # noqa: E402
 
 META_MAX_LEN = 120
 DENSITY_TARGET = (0.3, 0.8)  # 百分比口径（与 core/seo.py 一致）
@@ -67,7 +67,7 @@ class SEOAgent(BaseAgent):
 
         density = self.core.keyword_density(self.strip_html(content_html), keyword)
         html = self._inject_longtail(content_html, longtail, keyword)
-        html = self._inject_internal_link(html, keyword)
+        html = self._inject_internal_link(html, keyword, COLUMN_CATEGORIES.get(column, keyword))
 
         notes = []
         if density < DENSITY_TARGET[0]:
@@ -98,7 +98,7 @@ class SEOAgent(BaseAgent):
         tags = list(dict.fromkeys([keyword] + COLUMN_DEFAULT_TAGS.get(column, [])))
         density = self.core.keyword_density(self.strip_html(content_html), keyword)
         html = self._inject_longtail(content_html, longtail, keyword)
-        html = self._inject_internal_link(html, keyword)
+        html = self._inject_internal_link(html, keyword, COLUMN_CATEGORIES.get(column, keyword))
         return {
             "meta_description": MockLLM.MOCK_TAG + " " + meta[:60],
             "keywords": [keyword, f"{keyword}方法", f"{keyword}实操"],
@@ -152,9 +152,9 @@ class SEOAgent(BaseAgent):
             html = html[: m.end()] + sentence + html[m.end():]
         return html
 
-    def _inject_internal_link(self, html, keyword):
+    def _inject_internal_link(self, html, keyword, category=None):
         """内链占位（调 core/seo.py 工具函数；core 未就绪时降级）。"""
-        link = self.core.internal_link_placeholder(keyword)
+        link = self.core.internal_link_placeholder(keyword, category)
         marker = f"<!-- 内链占位:{keyword} -->"
         if marker in html:
             return html

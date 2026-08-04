@@ -540,6 +540,7 @@ class ABP_REST {
 			'column_tech_enabled' => ( 'on' === ( isset( $s['column_tech_enabled'] ) ? $s['column_tech_enabled'] : 'on' ) ),
 			'column_reading_enabled' => ( 'on' === ( isset( $s['column_reading_enabled'] ) ? $s['column_reading_enabled'] : 'on' ) ),
 			'column_book_enabled' => ( 'on' === ( isset( $s['column_book_enabled'] ) ? $s['column_book_enabled'] : 'on' ) ),
+			'column_industry_enabled' => ( 'on' === ( isset( $s['column_industry_enabled'] ) ? $s['column_industry_enabled'] : 'on' ) ),
 			'image_enabled'       => ( 'on' === ( isset( $s['image_enabled'] ) ? $s['image_enabled'] : 'on' ) ),
 			'publish_enabled'     => ( 'on' === ( isset( $s['publish_enabled'] ) ? $s['publish_enabled'] : 'on' ) ),
 			'flush_cache'         => ( 'on' === ( isset( $s['flush_cache'] ) ? $s['flush_cache'] : 'on' ) ),

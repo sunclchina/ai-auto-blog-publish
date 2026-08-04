@@ -105,6 +105,7 @@
 		/* ================= 备用选题池（唯一操作台） ================= */
 		var poolBox = document.getElementById( 'abp-pool-container' );
 		var poolFillBtn = document.getElementById( 'abp-pool-fill' );
+		var poolClearBtn = document.getElementById( 'abp-pool-clear' );
 		var poolAddBtn = document.getElementById( 'abp-pool-add-btn' );
 		var poolTopicInput = document.getElementById( 'abp-pool-topic' );
 		var poolColSelect = document.getElementById( 'abp-pool-col' );
@@ -119,7 +120,7 @@
 		};
 
 		var columnName = function ( c ) {
-			return { stock: 'A股复盘', tech: 'IT技术', reading: '国学', book: '书评' }[ c ] || c;
+			return { stock: 'A股复盘', tech: 'IT技术', reading: '国学', book: '书评', industry: '行业综述' }[ c ] || c;
 		};
 
 		// 备选题池栏目下拉：现有文章分类（翁老：栏目在现有分类中选）
@@ -235,6 +236,22 @@
 			} );
 		}
 
+		if ( poolClearBtn ) {
+			poolClearBtn.addEventListener( 'click', function () {
+				if ( ! window.confirm( '确定清空全部备用选题吗？清空后不可恢复，需重新填充。' ) ) { return; }
+				poolClearBtn.disabled = true;
+				fetch( poolRest + '/clear', {
+					method: 'POST', headers: headers(), credentials: 'same-origin'
+				} ).then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '响应解析失败 HTTP ' + r.status }; } ); } )
+					.then( function ( d ) {
+						poolMsgShow( d && d.ok ? '已清空 ' + ( d.cleared || 0 ) + ' 条备用选题（可重新智能填充）' : ( '清空失败：' + ( ( d && d.error ) || ( d && ( d.message || d.detail ) ) || '未知错误' ) ), ! ( d && d.ok ) );
+						if ( d && d.ok ) { loadPool(); }
+					} )
+					.catch( function ( e ) { poolMsgShow( '网络错误：' + ( e && e.message ? e.message : e ), true ); } )
+					.finally( function () { poolClearBtn.disabled = false; } );
+			} );
+		}
+
 		if ( poolAddBtn ) {
 			poolAddBtn.addEventListener( 'click', function () {
 				var topic = poolTopicInput ? poolTopicInput.value.trim() : '';
@@ -255,6 +272,40 @@
 						}
 					} )
 					.catch( function ( e ) { poolMsgShow( '网络错误：' + ( e && e.message ? e.message : e ), true ); } );
+			} );
+		}
+
+		/* GitHub 自动升级：检查更新 */
+		var checkUpdateBtn = document.getElementById( 'abp-check-update' );
+		var updateStatus = document.getElementById( 'abp-update-status' );
+		if ( checkUpdateBtn ) {
+			checkUpdateBtn.addEventListener( 'click', function () {
+				checkUpdateBtn.disabled = true;
+				if ( updateStatus ) {
+					updateStatus.textContent = '检查中…';
+					updateStatus.style.color = '';
+				}
+				fetch( abp.ajaxUrl + '?action=abp_check_update&_ajax_nonce=' + encodeURIComponent( abp.logNonce ), { credentials: 'same-origin' } )
+					.then( function ( r ) { return r.json(); } )
+					.then( function ( d ) {
+						if ( d && d.success && d.data && d.data.ok ) {
+							var v = d.data;
+							if ( v.has_update ) {
+								if ( updateStatus ) {
+									updateStatus.innerHTML = '发现新版本 v' + esc( v.latest ) + '（当前 v' + esc( v.current ) + '）→ <a href="' + esc( v.update_url ) + '">去升级</a>';
+									updateStatus.style.color = '#d63638';
+								}
+							} else if ( updateStatus ) {
+								updateStatus.textContent = '已是最新版本 v' + v.latest;
+								updateStatus.style.color = '#00a32a';
+							}
+						} else if ( updateStatus ) {
+							updateStatus.textContent = ( d && d.data ) ? d.data : '检查失败';
+							updateStatus.style.color = '#b32d2e';
+						}
+					} )
+					.catch( function () { if ( updateStatus ) { updateStatus.textContent = '网络错误'; updateStatus.style.color = '#b32d2e'; } } )
+					.finally( function () { checkUpdateBtn.disabled = false; } );
 			} );
 		}
 
