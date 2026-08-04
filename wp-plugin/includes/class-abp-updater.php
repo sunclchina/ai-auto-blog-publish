@@ -97,8 +97,16 @@ class ABP_Updater {
 			$args['headers']['Authorization'] = 'Bearer ' . $tok;
 		}
 		$resp = wp_remote_get( $url, $args );
+		// 部分 Windows PHP 环境的 OpenSSL 证书链验证异常（即使配置了 CA 也无法验证 GitHub 证书），
+		// 对 GitHub API 域降级重试一次（仅传输层/证书类失败才降级，404 等业务错误不重试）。
+		if ( is_wp_error( $resp ) || 0 === wp_remote_retrieve_response_code( $resp ) ) {
+			$args2          = $args;
+			$args2['sslverify'] = false;
+			$args2['timeout']   = 20;
+			$resp = wp_remote_get( $url, $args2 );
+		}
 		if ( is_wp_error( $resp ) || 200 !== wp_remote_retrieve_response_code( $resp ) ) {
-			return null; // 网络/限流失败静默降级。
+			return null; // 网络/限流/仓库不存在失败静默降级。
 		}
 		$data = json_decode( wp_remote_retrieve_body( $resp ), true );
 		if ( ! is_array( $data ) || empty( $data['tag_name'] ) ) {
