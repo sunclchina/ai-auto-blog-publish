@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.2.3
+Stable tag: 1.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -35,13 +35,18 @@ A-Blog 是「AI 全自动博客」系统的 WordPress 发布端插件，配合 P
 
 == Installation ==
 
-1. 将 `ai-auto-blog-publish` 文件夹上传到 `/wp-content/plugins/` 目录
-2. 在 WordPress 后台「插件」页面激活「AI自动博客 A-Blog」
-3. 进入后台菜单「AI 自动博客」：
-   - 确认各开关与调度配置（每日篇数、Token 额度、发布时段、栏目比例）
-   - 生成 API Token 并复制
-   - 查看「模型探测结果」确认已探测到可用模型（青简主题 qy_ai_api_key 优先）
-4. 在 Python 侧 `backend/config.yaml` 中配置 WP 站点地址、API Token，启动 FastAPI 服务（127.0.0.1:8080）
+A-Blog 为全家桶：**插件（PHP）+ 伴生服务（Python）**。ZIP 内已含 `backend/` 目录，安装两步：
+
+1. 将 `ai-auto-blog-publish` 文件夹上传到 `/wp-content/plugins/` 目录（或后台直接上传 ZIP），激活「AI自动博客 A-Blog」
+2. 安装并启动 Python 伴生服务（127.0.0.1:8080）：
+   - **Windows**：执行插件目录 `backend/install-backend.bat`，再运行 `backend/start-backend.bat`
+   - **Linux**：`cd backend && sudo bash install.sh && sudo systemctl start ablog`
+3. 配置密钥（`backend/config.yaml`，首次由安装脚本从模板生成）：
+   - `ABP_MODEL_API_KEY`（DeepSeek Key，AI 生成必需）
+   - `ABP_API_TOKEN`（后台「AI 自动博客」→「API Token」生成，发布必需）
+4. 后台「AI 自动博客」页：确认开关与调度配置（每日篇数、Token 额度、发布时段、栏目比例）
+
+后台若显示红色横幅「伴生服务未运行」，按提示执行安装脚本即可。详见 `backend/README.md`。
 
 == Frequently Asked Questions ==
 
@@ -66,6 +71,18 @@ A-Blog 是「AI 全自动博客」系统的 WordPress 发布端插件，配合 P
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.4.0 =
+
+* ★ 后端内置调度（免 crontab / 计划任务）：常驻服务自动建队列、按轮次生成（每轮 1 篇）、到期自动发布；配置见 backend/config.yaml 的 scheduler 段，改配置即生效
+* 环境变量配置支持 JSON 数组（如 scheduler.run_times）
+
+= 1.3.0 =
+
+* ★ 全家桶：插件 ZIP 内置 Python 伴生服务（backend/），安装/升级一步到位，不再依赖外部部署
+* 后台新增伴生服务健康检测横幅（未运行时醒目提示安装步骤）
+* Windows 一键安装脚本 `backend/install-backend.bat`
+* 安装文档：`backend/README.md`（Windows / Linux / 密钥 / 调度）
 
 = 1.2.1 =
 * 修复：备用选题池「一键清空」按钮报 REST 路由 404（补上 /pool/clear 代理路由）

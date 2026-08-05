@@ -3,7 +3,7 @@
  * Plugin Name: AI自动博客 A-Blog
  * Plugin URI:  https://sunclnas.cn/
  * Description: AI 全自动博客内容生产与发布插件（A-Blog）。接收 Python 伴生服务产出的成品文章，经 SimHash 指纹查重后自动建文、分类、打标、配图并发布；自动探测站点模型配置（青简主题 → 其他插件 → 插件自身）。配套 REST API：/wp-json/ai-auto-blog/v1/*。
- * Version:     1.2.3
+ * Version:     1.4.0
  * Author:      A-Blog Team
  * Author URI:  https://sunclnas.cn/
  * License:     GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /* 常量定义 */
-define( 'ABP_VERSION', '1.2.3' );
+define( 'ABP_VERSION', '1.4.0' );
 define( 'ABP_PLUGIN_FILE', __FILE__ );
 define( 'ABP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ABP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -35,6 +35,32 @@ require_once ABP_PLUGIN_DIR . 'includes/class-abp-rest.php';
 require_once ABP_PLUGIN_DIR . 'includes/class-abp-settings.php';
 require_once ABP_PLUGIN_DIR . 'includes/class-abp-toolbox.php';
 require_once ABP_PLUGIN_DIR . 'includes/class-abp-updater.php';
+
+/**
+ * 后台横幅：检测 Python 伴生服务（127.0.0.1:8080）是否运行。
+ * 5 分钟缓存 + 2s 超时，避免拖慢后台。仅管理员可见。
+ *
+ * @return void
+ */
+function abp_backend_health_banner() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+	$status = get_transient( 'abp_backend_health' );
+	if ( false === $status ) {
+		$resp = wp_remote_get( 'http://127.0.0.1:8080/healthz', array( 'timeout' => 2, 'sslverify' => false ) );
+		$status = ( ! is_wp_error( $resp ) && 200 === (int) wp_remote_retrieve_response_code( $resp ) ) ? 'ok' : 'down';
+		set_transient( 'abp_backend_health', $status, 5 * MINUTE_IN_SECONDS );
+	}
+	if ( 'down' !== $status ) {
+		return;
+	}
+	printf(
+		'<div class="notice notice-error"><p><strong>A-Blog：</strong>Python 伴生服务未运行（%s 无响应），AI 生成与自动调度不可用。请执行插件目录 <code>backend\install-backend.bat</code> 完成安装并启动，详见 <code>backend\README.md</code>。</p></div>',
+		esc_html( '127.0.0.1:8080' )
+	);
+}
+add_action( 'admin_notices', 'abp_backend_health_banner' );
 
 /**
  * 激活钩子：建表（wp_abp_log 任务日志 + wp_abp_fingerprints 指纹索引）+ 初始化默认设置。

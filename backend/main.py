@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import asynccontextmanager
 from typing import Optional
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,15 +33,35 @@ from config import get_config, reload_config  # noqa: E402
 from core import db, logger  # noqa: E402
 from core.risk import get_breaker  # noqa: E402
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 # 服务启动即建表 + 幂等迁移（uvicorn 不走 __main__ 块，必须模块级初始化）
 db.init_db()
+
+
+# ---------------------------------------------------------------------------
+# 内置调度（scheduler/auto.py）：常驻自动建队列/生成/发布，免 crontab/计划任务
+# ---------------------------------------------------------------------------
+_scheduler = None  # type: Optional[AutoScheduler]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _scheduler
+    from scheduler.auto import AutoScheduler
+
+    _scheduler = AutoScheduler()
+    _scheduler.start()
+    yield
+    if _scheduler:
+        _scheduler.stop()
+
 
 app = FastAPI(
     title="A-Blog AI 全自动博客伴生服务",
     description="调度层 + AI 生成层 + WP 发布层（Python 侧），固定监听 127.0.0.1:8080",
     version=APP_VERSION,
+    lifespan=lifespan,
 )
 
 
@@ -395,16 +416,21 @@ def pool_clear() -> dict:
 
 
 @app.post("/api/pool/fill")
-def pool_fill(column: Optional[str] = None, n: int = 3) -> dict:
-    """本地素材生成备用题入池（无 API Key 可用）。body 或 query: column, n。"""
+def pool_fill(column: Optional[str] = None, n: Optional[int] = None) -> dict:
+    """本地素材生成备用题入池（无 API Key 可用）。body 或 query: column, n。
+    n 缺省取 config batch.fill_size（默认 1，拆小批量）。"""
     from scheduler.pool import fill_pool
     from scheduler.daily_queue import enabled_columns
     if column and column not in ("stock", "tech", "reading", "book", "industry"):
         raise HTTPException(status_code=400, detail=f"未知栏目: {column}")
+    cfg = get_config()
+    if n is None:
+        n = int(cfg.get("batch.fill_size", 1))
+    n = max(1, min(int(n), 10))
     cols = [column] if column else enabled_columns()
     total = 0
     for c in cols:
-        total += fill_pool(c, get_config(), n=max(1, min(int(n), 10)))
+        total += fill_pool(c, cfg, n=n)
     return {"ok": True, "added": total}
 
 

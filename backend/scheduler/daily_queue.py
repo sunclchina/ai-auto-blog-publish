@@ -151,6 +151,52 @@ def _random_publish_time(date: datetime.date, rng: random.Random, cfg) -> str:
     return datetime.datetime(date.year, date.month, date.day, h, m).isoformat(timespec="seconds")
 
 
+def _schedule_publish_times(date: datetime.date, count: int, rng: random.Random, cfg) -> List[str]:
+    """同日 count 篇的发布时间列表（按 sort_order 从早到晚）：
+    窗口内随机，但相邻两篇保证 >= publish.min_interval_minutes（默认 120，拉长间隔）。
+
+    - 窗口放得下间隔：先按最小间隔铺开，再把剩余空闲时间随机切分给各篇（保持顺序），
+      既随机又不会挤在一起；
+    - 放不下（篇数太多）：退化为窗口内均匀分散并告警，不挤在同一分钟。
+    """
+    start = str(cfg.get("publish.window_start", "09:00"))
+    end = str(cfg.get("publish.window_end", "21:00"))
+    try:
+        h1, m1 = map(int, start.split(":"))
+        h2, m2 = map(int, end.split(":"))
+    except ValueError:
+        h1, m1, h2, m2 = 9, 0, 21, 0
+    total = (h2 * 60 + m2) - (h1 * 60 + m1)
+    if total <= 0:
+        total = 60
+    start_min = h1 * 60 + m1
+    if count <= 1:
+        times = [start_min + rng.randrange(0, total)]
+    else:
+        min_int = max(0, int(cfg.get("publish.min_interval_minutes", 120)))
+        if (count - 1) * min_int < total:
+            # 剩余空闲时间随机切分（Dirichlet 式），铺在每篇之间；相邻间隔 >= min_int
+            slack = total - (count - 1) * min_int
+            cuts = sorted(rng.random() for _ in range(count - 1))
+            pts = [0.0] + cuts + [1.0]
+            times = []
+            t = start_min
+            for i in range(count):
+                t += (pts[i + 1] - pts[i]) * slack
+                times.append(int(t))
+                t += min_int
+        else:
+            logger.warning(f"publish window {start}-{end} 放不下 {count} 篇 × 最小间隔 {min_int}min，"
+                           "按窗口内均匀分散处理（间隔可能小于配置值）")
+            seg = total / count
+            times = [int(start_min + i * seg + rng.uniform(0, seg)) for i in range(count)]
+    out = []
+    for m in times:
+        h, mm = divmod(m, 60)
+        out.append(datetime.datetime(date.year, date.month, date.day, h, mm).isoformat(timespec="seconds"))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 选题提供方注册（collectors/agents 模块注入）
 # ---------------------------------------------------------------------------
@@ -213,6 +259,8 @@ def build_daily_tasks(date: Optional[datetime.date] = None,
 
     weights, _ = _rotation_weights(cfg)
     picked = pick_columns(count, weights, rng)
+    # 同日多篇发布时间一次排定：窗口内随机 + 最小发布间隔（publish.min_interval_minutes）
+    publish_times = _schedule_publish_times(date, len(picked), rng, cfg)
     publish_enabled = bool(cfg.get("publish.enabled", True))
 
     tasks = []
@@ -221,7 +269,7 @@ def build_daily_tasks(date: Optional[datetime.date] = None,
     for order, col in enumerate(picked):
         seq[col] = seq.get(col, 0) + 1
         task_id = f"{date:%Y%m%d}-{col}-{seq[col]:03d}"
-        publish_date = _random_publish_time(date, rng, cfg)
+        publish_date = publish_times[order]
         # 备用选题池按计划取题（取后标 used），池子不足则退回提供方/空；
         # stock 复盘不走池子（翁老规则：不能有备选题目），topic 用日期占位，副标题正文后取。
         pool_topic = ""
@@ -481,6 +529,11 @@ def run_topic_selection(column: Optional[str] = None) -> List[dict]:
     rows = [r for r in rows if r["column_name"] != "stock"]
     if not rows:
         return []
+    # 单轮上限（batch.run_per_round，默认 1 篇/轮，拆小批量防内存/限流峰值；剩余留待下轮）
+    limit = max(1, int(cfg.get("batch.run_per_round", 1)))
+    if len(rows) > limit:
+        logger.info(f"run_topic_selection 单轮上限 {limit}，剩余 {len(rows) - limit} 个任务留待下一轮")
+        rows = rows[:limit]
 
     agent = TopicAgent(cfg.raw if hasattr(cfg, "raw") else cfg, core=None, dry_run=False)
     results = []
@@ -564,6 +617,11 @@ def run_pending_tasks(column: Optional[str] = None) -> List[dict]:
         rows = [r for r in rows if r["column_name"] == column]
     if not rows:
         return []
+    # 单轮上限（batch.run_per_round，默认 1 篇/轮，拆小批量防内存/限流峰值；剩余留待下轮）
+    limit = max(1, int(cfg.get("batch.run_per_round", 1)))
+    if len(rows) > limit:
+        logger.info(f"run_pending_tasks 单轮上限 {limit}，剩余 {len(rows) - limit} 个任务留待下一轮")
+        rows = rows[:limit]
 
     today = datetime.date.today()
     pipe = PipelineAgent(cfg.raw if hasattr(cfg, "raw") else cfg, core=None, dry_run=False)
@@ -734,7 +792,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--generate", action="store_true", help="生成当日任务清单（栏目轮换/配额/随机时段）")
     parser.add_argument("--topics", action="store_true", help="预选题：对 queued 任务生成备选列表（Step1，任务保持排队待人工确认）")
     parser.add_argument("--pool", action="store_true", help="填充备用选题池（本地素材成题，无需 API Key）")
-    parser.add_argument("--pool-count", type=int, default=3, help="每栏目填充条数（默认 3）")
+    parser.add_argument("--pool-count", type=int, default=None, help="每栏目填充条数（缺省取 config batch.fill_size，默认 1）")
     parser.add_argument("--run", action="store_true", help="执行 queued 任务（AI 流水线→发布到点任务）")
     parser.add_argument("--column", choices=("stock", "tech", "reading", "book", "industry"), default=None,
                         help="仅处理某栏目（如 20:00 复盘专用 --column stock --run）")
@@ -768,7 +826,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         cols = [args.column] if args.column else list(enabled_columns())
         total = 0
         for c in cols:
-            n = fill_pool(c, get_config(), n=max(1, args.pool_count))
+            # n=None -> 走 config batch.fill_size（默认 1，拆小批量）
+            n = fill_pool(c, get_config(), n=args.pool_count)
             print(f"pool fill {c}: +{n}")
             total += n
         print(f"pool total added: {total}")

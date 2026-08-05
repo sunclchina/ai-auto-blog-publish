@@ -51,6 +51,14 @@ def _coerce(value: str) -> Any:
         return float(v)
     except ValueError:
         pass
+    # JSON 数组/对象（如 scheduler.run_times=["20:30","21:00"]）
+    if v[:1] in ("[", "{"):
+        try:
+            import json
+
+            return json.loads(v)
+        except ValueError:
+            pass
     return v
 
 

@@ -65,13 +65,18 @@ LOG=${ABLOG_HOME}/data/logs
 0 8 * * *  cd ${ABLOG_HOME}/backend && ${PY} -m scheduler.daily_queue --generate --topics >> ${LOG}/cron-daily.log 2>&1
 
 # ---------------------------------------------------------------------------
-# 3) 每日 20:30 执行队列 (生成正文 + 发布到点任务)
+# 3) 每日 20:30 起执行队列 (生成正文 + 发布到点任务), 拆成三轮 (翁老: 批量拆小)
+#    - batch.run_per_round 默认 1 篇/轮: 每轮最多生成 1 篇, 剩余任务下一轮继续,
+#      避免集中生成打爆 WP/PHP 内存 (对应 2026-08-05 WP 内存耗尽事故);
 #    - 复盘任务 20:00 已单独触发 (--column stock --run);
 #    - 此处处理其余栏目: queued 任务按 sort_order 顺序生成正文 (Step2-7),
 #      publish_date 到点即发布, 未到点自动落 WP future 定时发布;
-#    - 幂等: 已 ready/published 任务自动跳过。
+#    - 幂等: 已 ready/published 任务自动跳过。三轮跑不完(如配置 run_per_round>1
+#      或当日任务数更多)可自行追加 22:00 轮次。
 # ---------------------------------------------------------------------------
 30 20 * * *  cd ${ABLOG_HOME}/backend && ${PY} -m scheduler.daily_queue --run >> ${LOG}/cron-run.log 2>&1
+0 21 * * *  cd ${ABLOG_HOME}/backend && ${PY} -m scheduler.daily_queue --run >> ${LOG}/cron-run.log 2>&1
+30 21 * * *  cd ${ABLOG_HOME}/backend && ${PY} -m scheduler.daily_queue --run >> ${LOG}/cron-run.log 2>&1
 
 # ---------------------------------------------------------------------------
 # 4) 每 5 分钟健康检查 (可选)

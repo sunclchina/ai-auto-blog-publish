@@ -23,7 +23,7 @@ from core import db, logger
 
 VALID_COLUMNS = ("stock", "tech", "reading", "book", "industry")
 
-# 备选池容量上限（翁老需求：超过 20 条不再自动生成）
+# 备选池容量上限（翁老需求：超过 20 条不再自动生成；config batch.pool_limit 可调，此处为回退默认）
 POOL_LIMIT = 20
 
 
@@ -220,12 +220,18 @@ def local_generate(column: str, cfg, n: int = 3) -> List[str]:
     return topics[:n]
 
 
-def fill_pool(column: str, cfg, n: int = 3, source: str = "local", limit: int = POOL_LIMIT) -> int:
+def fill_pool(column: str, cfg, n: Optional[int] = None, source: str = "local", limit: Optional[int] = None) -> int:
     """批量填充备用选题池，返回新增条数。
 
-    - 池子总量超过上限（默认 20 条排队）不再生成，返回 0
+    - n 缺省取 config batch.fill_size（默认 1，拆小批量）；上限 10
+    - limit 缺省取 config batch.pool_limit（默认 20），池子总量超限不再生成，返回 0
     - 已有相同题目自动去重跳过
     """
+    if n is None:
+        n = int(cfg.get("batch.fill_size", 1))
+    n = max(1, min(int(n), 10))
+    if limit is None:
+        limit = int(cfg.get("batch.pool_limit", POOL_LIMIT))
     room = limit - queued_count()
     if room <= 0:
         logger.info(f"pool fill skip: queued >= limit({limit})")
