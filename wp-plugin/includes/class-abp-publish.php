@@ -323,7 +323,7 @@ class ABP_Publish {
 	 * @param string $image   base64 data URI 或 URL。
 	 * @return int|false 附件 ID 或 false。
 	 */
-	private static function attach_featured_image( $post_id, $title, $image ) {
+	public static function attach_featured_image( $post_id, $title, $image ) {
 		$image = trim( (string) $image );
 		if ( '' === $image ) {
 			return false;

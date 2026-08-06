@@ -189,6 +189,9 @@ def load() -> Config:
     search_cfg = data.setdefault("search", {})
     search_cfg["api_key"] = _resolve_secret(cfg, "search.api_key_env", "search.api_key_file", secrets)
 
+    image_cfg = data.setdefault("image", {})
+    image_cfg["api_key"] = _resolve_secret(cfg, "image.api_key_env", "image.api_key_file", secrets)
+
     # 解析后的绝对路径（相对项目根）
     for rel_key in ("data.db_path", "data.sensitive_words_file", "data.image_cache_dir",
                     "logging.dir"):
@@ -235,7 +238,19 @@ def apply_wp_model_config(cfg: Config, payload: Dict[str, Any]) -> Config:
         if payload.get(field):
             cfg.set(f"models.{field}", payload[field])
     if isinstance(payload.get("image_api"), dict):
-        cfg.set("models.image_api", payload["image_api"])
+        img_api = payload["image_api"]
+        cfg.set("models.image_api", img_api)
+        # WP 后台「图片 API 配置」→ 生图 provider（仅当配置了 key 时生效，避免空值覆盖后端配置）
+        key = img_api.get("key") or img_api.get("api_key")
+        if isinstance(key, str) and key.strip():
+            cfg.set("image.api_key", key.strip())
+            if img_api.get("provider"):
+                cfg.set("image.provider", str(img_api["provider"]).strip().lower())
+            if img_api.get("endpoint"):
+                cfg.set("image.endpoint", str(img_api["endpoint"]).strip())
+            if img_api.get("model"):
+                cfg.set("image.model", str(img_api["model"]).strip())
+            cfg.set("image.enabled", True)
     return cfg
 
 

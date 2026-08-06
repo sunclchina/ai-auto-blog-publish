@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.4.0
+Stable tag: 1.4.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -71,6 +71,17 @@ A-Blog 为全家桶：**插件（PHP）+ 伴生服务（Python）**。ZIP 内已
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.4.1 =
+
+* AI 配图：工具箱新增「AI 配图」按钮，勾选文章后由后端 AI 自动生成封面（按标题+正文要点+栏目风格出提示词），异步任务 + 轮询进度，生成后自动上传媒体库并设为特色图
+* 阿里云百炼（DashScope）生图支持：通义万相 wanx-v1 / wan2.x-t2i 等模型（原生异步接口适配），Provider/Key/Endpoint/Model 可在后台「图片 API 配置」填写
+* 修复：WP 后台图片配置保存后未同步到后端（新增 /api/sync 强制同步，AI 配图前自动拉取最新配置）
+* 修复：检查更新提示——远端 GitHub Release 低于当前版本时明确提示「Release 未同步」
+* AI 评论作者本地 SVG 头像：按昵称确定性生成 100×100 SVG（约 0.6KB，零成本零外部依赖），评论生成时自动挂载，前台替换默认 Gravatar；旧评论渲染时自动补生成
+* 工具箱文章列表新增「封面」状态列
+* 移除已废弃的「修复旧文站内相关」维护工具
+* 后端 APP_VERSION 1.2.0
 
 = 1.4.0 =
 

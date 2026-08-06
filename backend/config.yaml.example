@@ -120,8 +120,11 @@ models:
       reading: "qwen-plus"
   image:                 # 配图模型(可选): 未配置则纯文字发布
     enabled: true
-    provider: ""         # 生图服务商标识; key 从环境变量 ABP_IMAGE_KEY 注入
-    model: ""            # 如 dall-e-3 / flux 等, 由服务商决定
+    provider: ""         # 生图服务商标识: dalle(OpenAI 兼容, dall-e-3/豆包即梦等兼容端点) / dashscope(阿里百炼万相)
+    endpoint: ""         # dalle: https://api.openai.com/v1 (或兼容端点); dashscope: https://dashscope.aliyuncs.com
+    model: ""            # 如 dall-e-3 / wanx-v1 / wan2.1-t2i-turbo / wan2.2-t2i-flash, 由服务商决定
+    input_format: "prompt"  # dashscope 新模型(如 wan2.6-t2i) 用 messages; 其余用 prompt
+    api_key_env: "ABP_IMAGE_KEY"  # 密钥环境变量名(通用 secrets 文件同键名); 也可直接写 image.api_key
 
 # ---------------- 密钥字段汇总 (全部留空, 禁止写入真实值!) ----------------
 # 部署时统一写入 backend/.env, 由 systemd EnvironmentFile 注入进程环境;

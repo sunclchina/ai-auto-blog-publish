@@ -385,6 +385,7 @@ class ABP_Settings {
 				'post_date'     => get_the_date( '', $p ),
 				'has_excerpt'   => '' !== trim( (string) $p->post_excerpt ),
 				'comment_count' => (int) get_comments_number( $p->ID ),
+				'has_cover'     => (bool) has_post_thumbnail( $p->ID ),
 				'topics'        => is_wp_error( $topics ) ? array() : $topics,
 			);
 		}
@@ -548,7 +549,7 @@ class ABP_Settings {
 							<tr>
 								<th scope="row">图片 API 配置<br /><small>（Python 侧生图接口）</small></th>
 								<td>
-									<p><label>Provider：</label> <input type="text" name="abp_settings[image_api][provider]" value="<?php echo esc_attr( $settings['image_api']['provider'] ); ?>" class="regular-text" placeholder="如 openai / 通义 / 豆包" /></p>
+									<p><label>Provider：</label> <input type="text" name="abp_settings[image_api][provider]" value="<?php echo esc_attr( $settings['image_api']['provider'] ); ?>" class="regular-text" placeholder="openai（兼容端点）/ dashscope（阿里百炼万相）" /></p>
 									<p><label>API Key：</label> <input type="password" name="abp_settings[image_api][key]" value="" class="regular-text" autocomplete="new-password" placeholder="留空保持不变" /></p>
 									<p><label>Endpoint：</label> <input type="url" name="abp_settings[image_api][endpoint]" value="<?php echo esc_attr( $settings['image_api']['endpoint'] ); ?>" class="regular-text" placeholder="https://..." /></p>
 									<p><label>Model：</label> <input type="text" name="abp_settings[image_api][model]" value="<?php echo esc_attr( $settings['image_api']['model'] ); ?>" class="regular-text" placeholder="如 dall-e-3" /></p>
@@ -660,8 +661,8 @@ class ABP_Settings {
 
 			<!-- ④.8 AI 工具箱（摘要 / 评论 / 热门话题，参照星河AI工具箱形态） -->
 			<div class="abp-card" id="abp-toolbox-card">
-				<h2>AI 工具箱（摘要 / 评论 / 热门话题）</h2>
-				<p class="description">从下方文章列表勾选（可多选），批量生成摘要 / 评论 / 热门话题。状态列显示是否已有相关内容。</p>
+				<h2>AI 工具箱（摘要 / 评论 / 热门话题 / AI 配图）</h2>
+				<p class="description">从下方文章列表勾选（可多选），批量生成摘要 / 评论 / 热门话题，或一键 AI 生成封面（消耗生图服务额度）。状态列显示是否已有相关内容。</p>
 				<div class="abp-toolbox-row">
 					<button type="button" class="button" id="abp-toolbox-refresh">刷新列表</button>
 					<label><input type="checkbox" id="abp-toolbox-all" /> 全选</label>
@@ -670,9 +671,9 @@ class ABP_Settings {
 				<div class="abp-toolbox-table-wrap">
 					<table class="widefat striped" id="abp-toolbox-table">
 						<thead>
-							<tr><th class="abp-col-check"><input type="checkbox" id="abp-toolbox-all2" title="全选" /></th><th>文章标题</th><th>日期</th><th>摘要</th><th>评论</th><th>话题</th></tr>
+							<tr><th class="abp-col-check"><input type="checkbox" id="abp-toolbox-all2" title="全选" /></th><th>文章标题</th><th>日期</th><th>摘要</th><th>评论</th><th>话题</th><th>封面</th></tr>
 						</thead>
-						<tbody id="abp-toolbox-tbody"><tr><td colspan="6">加载中…</td></tr></tbody>
+						<tbody id="abp-toolbox-tbody"><tr><td colspan="7">加载中…</td></tr></tbody>
 					</table>
 				</div>
 				<div class="abp-toolbox-row">
@@ -683,11 +684,8 @@ class ABP_Settings {
 					<label>状态 <select id="abp-toolbox-cstatus"><option value="pending">待审核</option><option value="approved">直接显示</option></select></label>
 					<span class="abp-toolbox-sep">|</span>
 					<button type="button" class="button" id="abp-toolbox-topics">批量热门话题</button>
-				</div>
-				<div class="abp-toolbox-row" style="margin-top:8px;border-top:1px dashed #c3c4c7;padding-top:8px;">
-					<strong>维护工具：</strong>
-					<button type="button" class="button" id="abp-toolbox-fix-related">修复旧文「站内相关」为类别名</button>
-					<span id="abp-toolbox-fix-msg" class="description"></span>
+					<span class="abp-toolbox-sep">|</span>
+					<button type="button" class="button" id="abp-toolbox-cover" title="AI 自动生成封面并设为文章特色图（走已配置的生图服务）">AI 配图</button>
 				</div>
 				<div id="abp-toolbox-result" class="abp-toolbox-result"></div>
 			</div>

@@ -16,3 +16,8 @@ dist/
 deploy/cred-*
 deploy/debug-cred*
 deploy/release-retry*
+
+# 后端运行时目录与重启日志（运行/打包产生，不入库）
+backend/data/
+uvicorn-restart.log
+uvicorn-restart.log.err

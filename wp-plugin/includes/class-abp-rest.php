@@ -267,10 +267,28 @@ class ABP_REST {
 		);
 		register_rest_route(
 			ABP_API_NAMESPACE,
-			'/toolbox/fix-related',
+			'/toolbox/cover',
 			array(
 				'methods'             => 'POST',
-				'callback'            => array( __CLASS__, 'handle_toolbox_fix_related' ),
+				'callback'            => array( __CLASS__, 'handle_toolbox_cover' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/toolbox/ai-cover',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_toolbox_ai_cover' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/toolbox/ai-cover/(?P<job_id>[a-zA-Z0-9\-]+)',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'handle_toolbox_ai_cover_status' ),
 				'permission_callback' => array( __CLASS__, 'check_token' ),
 			)
 		);
@@ -513,47 +531,162 @@ class ABP_REST {
 	}
 
 	/**
-	 * POST /toolbox/fix-related —— 修复旧文「站内相关」：按文章分类批量替换
-	 * 「站内相关：任意关键词」→「站内相关：{该文分类名}」（正文与 title 属性同时替换）。
+	 * POST /toolbox/cover —— 手动配图：为勾选的文章设置封面图。
+	 * body: {post_ids: [...], image_url} 或 {post_id, image_url}
+	 * image_url 支持 http(s) URL 或 base64 data URI（复用发布层 ABP_Publish::attach_featured_image）。
 	 *
+	 * @param WP_REST_Request $request 请求对象。
 	 * @return WP_REST_Response
 	 */
-	public static function handle_toolbox_fix_related( $request ) {
-		$processed = 0;
-		$updated   = 0;
-		$skipped   = 0;
-		$posts = get_posts( array(
-			'post_type'      => 'post',
-			'post_status'    => array( 'publish', 'draft', 'future', 'pending' ),
-			'posts_per_page' => -1,
-			's'              => '站内相关：',
-			'fields'         => 'ids',
-		) );
-		foreach ( $posts as $pid ) {
-			$processed++;
-			$content = get_post_field( 'post_content', $pid );
-			if ( false === strpos( $content, '站内相关：' ) ) {
-				$skipped++;
-				continue;
+	public static function handle_toolbox_cover( $request ) {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = array();
+		}
+		$image_url = isset( $body['image_url'] ) ? trim( (string) $body['image_url'] ) : '';
+		if ( '' === $image_url ) {
+			return self::error( 'image_url 必填（http(s) 图片地址或 base64 data URI）', 400, '', '', 'toolbox' );
+		}
+
+		$ids = array();
+		if ( ! empty( $body['post_ids'] ) && is_array( $body['post_ids'] ) ) {
+			foreach ( $body['post_ids'] as $pid ) {
+				$id = intval( $pid );
+				if ( $id ) {
+					$ids[] = $id;
+				}
 			}
-			$terms = wp_get_post_terms( $pid, 'category', array( 'fields' => 'names' ) );
-			$cat   = ( is_wp_error( $terms ) || empty( $terms ) ) ? '' : $terms[0];
-			if ( '' === $cat ) {
-				$skipped++;
-				continue;
-			}
-			$new_content = preg_replace( '/站内相关：[^<"\']*/u', '站内相关：' . $cat, $content );
-			if ( null !== $new_content && $new_content !== $content ) {
-				wp_update_post( array( 'ID' => $pid, 'post_content' => $new_content ) );
-				$updated++;
+		} elseif ( ! empty( $body['post_id'] ) ) {
+			$ids[] = intval( $body['post_id'] );
+		}
+		if ( ! $ids ) {
+			return self::error( 'post_id / post_ids 必填', 400, '', '', 'toolbox' );
+		}
+
+		set_time_limit( 0 );
+		$results = array();
+		foreach ( array_unique( $ids ) as $pid ) {
+			$title  = get_the_title( $pid );
+			$att_id = ABP_Publish::attach_featured_image( $pid, $title, $image_url );
+			if ( false !== $att_id ) {
+				set_post_thumbnail( $pid, $att_id );
+				abp_log_write( 'toolbox', 'cover', 'cover', 'ok', '手动配图 post_id=' . $pid . ' 附件=' . $att_id );
+				$results[] = array(
+					'post_id'      => (int) $pid,
+				'ok'           => true,
+				'attachment_id'=> (int) $att_id,
+			);
+			} else {
+				$results[] = array(
+					'post_id' => (int) $pid,
+					'ok'      => false,
+					'error'   => '配图失败（详见任务日志 image 记录）',
+				);
 			}
 		}
 		return rest_ensure_response( new WP_REST_Response( array(
-			'ok'        => true,
-			'processed' => $processed,
-			'updated'   => $updated,
-			'skipped'   => $skipped,
+			'ok'      => true,
+			'batch'   => true,
+			'results' => $results,
 		), 200 ) );
+	}
+
+	/**
+	 * POST /toolbox/ai-cover —— AI 配图：为勾选文章创建后端异步生图任务（代理 Python）。
+	 * body: {post_ids: [...]}；返回每篇的 job_id，前端轮询 /toolbox/ai-cover/{job_id}。
+	 *
+	 * @param WP_REST_Request $request 请求对象。
+	 * @return WP_REST_Response
+	 */
+	public static function handle_toolbox_ai_cover( $request ) {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) || empty( $body['post_ids'] ) || ! is_array( $body['post_ids'] ) ) {
+			return self::error( 'post_ids 数组必填', 400, '', '', 'toolbox' );
+		}
+		$ids = array();
+		foreach ( $body['post_ids'] as $pid ) {
+			$id = intval( $pid );
+			if ( $id ) {
+				$ids[] = $id;
+			}
+		}
+		if ( ! $ids ) {
+			return self::error( 'post_ids 为空', 400, '', '', 'toolbox' );
+		}
+
+		// 先强制同步一次 WP 配置到后端（生图 Key/Provider 可能刚保存，避免用到旧配置）。
+		self::proxy( 'POST', '/api/sync', null, 20 );
+
+		$jobs = array();
+		foreach ( array_unique( $ids ) as $pid ) {
+			// 正文前 200 字去标签压缩后作为提示词要点（让封面贴合文章内容）。
+			$plain = trim( (string) wp_strip_all_tags( get_post_field( 'post_content', $pid ) ) );
+			$plain = (string) preg_replace( '/\s+/u', ' ', $plain );
+			$resp = self::proxy( 'POST', '/api/toolbox/cover', array(
+				'post_id' => (int) $pid,
+				'title'   => get_the_title( $pid ),
+				'column'  => self::post_column_code( $pid ),
+				'content' => mb_substr( $plain, 0, 200 ),
+			), 15 );
+			$data = $resp->get_data();
+			if ( is_array( $data ) && ! empty( $data['ok'] ) && ! empty( $data['job_id'] ) ) {
+				$jobs[] = array(
+					'post_id' => (int) $pid,
+					'job_id'  => sanitize_text_field( (string) $data['job_id'] ),
+				);
+			} else {
+				$jobs[] = array(
+					'post_id' => (int) $pid,
+					'job_id'  => '',
+					'error'   => is_array( $data ) ? ( isset( $data['error'] ) ? (string) $data['error'] : '后端任务创建失败' ) : '后端任务创建失败',
+				);
+			}
+		}
+		return rest_ensure_response( new WP_REST_Response( array( 'ok' => true, 'jobs' => $jobs ), 200 ) );
+	}
+
+	/**
+	 * GET /toolbox/ai-cover/{job_id} —— 查询 AI 配图任务状态（代理 Python）。
+	 *
+	 * @param WP_REST_Request $request 请求对象。
+	 * @return WP_REST_Response
+	 */
+	public static function handle_toolbox_ai_cover_status( $request ) {
+		$job_id = sanitize_text_field( (string) $request['job_id'] );
+		if ( '' === $job_id ) {
+			return self::error( 'job_id 必填', 400, '', '', 'toolbox' );
+		}
+		return self::proxy( 'GET', '/api/toolbox/cover/' . rawurlencode( $job_id ) );
+	}
+
+	/**
+	 * 文章分类名 → 栏目代码（AI 配图提示词风格用）。
+	 *
+	 * @param int $post_id 文章 ID。
+	 * @return string 栏目代码（stock/tech/reading/book/industry），未知返回空串（通用风格）。
+	 */
+	private static function post_column_code( $post_id ) {
+		$terms = wp_get_post_terms( $post_id, 'category', array( 'fields' => 'names' ) );
+		if ( is_wp_error( $terms ) || empty( $terms ) ) {
+			return '';
+		}
+		$name = implode( ' ', (array) $terms );
+		if ( false !== mb_strpos( $name, 'A股' ) ) {
+			return 'stock';
+		}
+		if ( false !== mb_strpos( $name, 'IT' ) || false !== mb_strpos( $name, '技术' ) ) {
+			return 'tech';
+		}
+		if ( false !== mb_strpos( $name, '书评' ) ) {
+			return 'book';
+		}
+		if ( false !== mb_strpos( $name, '读书' ) || false !== mb_strpos( $name, '国学' ) ) {
+			return 'reading';
+		}
+		if ( false !== mb_strpos( $name, '行业' ) ) {
+			return 'industry';
+		}
+		return '';
 	}
 
 	/**
@@ -917,6 +1050,9 @@ class ABP_REST {
 			'image_api' => array(
 				'provider' => isset( $models['image_api']['provider'] ) ? $models['image_api']['provider'] : '',
 				'model'    => isset( $models['image_api']['model'] ) ? $models['image_api']['model'] : '',
+				// 完整 Key 与 Endpoint 仅经 Bearer 认证接口回传（供 Python 侧同步采用，不入日志）。
+				'key'      => isset( $models['image_api']['key'] ) ? (string) $models['image_api']['key'] : '',
+				'endpoint' => isset( $models['image_api']['endpoint'] ) ? (string) $models['image_api']['endpoint'] : '',
 			),
 		);
 

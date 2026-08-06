@@ -217,6 +217,11 @@ class ABP_Toolbox {
 			);
 			$cid = wp_insert_comment( $comment_data );
 			if ( $cid ) {
+				// 本地 SVG 头像（零成本、确定性）：生成文件并记 meta，前端 get_avatar 自动替换。
+				$avatar_url = ABP_Avatar::ensure_avatar( $comment_data['comment_author'], $comment_data['comment_author_email'] );
+				if ( '' !== $avatar_url ) {
+					add_comment_meta( $cid, '_abp_avatar', $avatar_url, true );
+				}
 				$inserted++;
 			}
 		}

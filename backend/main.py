@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -33,7 +34,7 @@ from config import get_config, reload_config  # noqa: E402
 from core import db, logger  # noqa: E402
 from core.risk import get_breaker  # noqa: E402
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 # 服务启动即建表 + 幂等迁移（uvicorn 不走 __main__ 块，必须模块级初始化）
 db.init_db()
@@ -94,10 +95,13 @@ def _module_status() -> dict:
     except Exception as e:  # pragma: no cover
         db_ok, db_msg = False, str(e)
     breaker = get_breaker()
+    img = get_config().get("image", {}) or {}
     return {
         "db": {"ok": db_ok, "detail": db_msg},
         "config": {"provider": get_config().get("models.provider", "self"),
                    "source": get_config().get("models.source", "")},
+        "image": {"provider": img.get("provider", ""), "model": img.get("model", ""),
+                   "configured": bool(img.get("api_key"))},
         "circuit_breakers": breaker.snapshot(),
         "publish_enabled": bool(get_config().get("publish.enabled", True)),
         "articles_per_day": get_config().get("daily.articles_per_day", 3),
@@ -448,6 +452,149 @@ def reload_cfg() -> dict:
     """配置热重载（改 config.yaml 后调用）。"""
     reload_config()
     return {"ok": True, "config": get_config().to_public_dict()}
+
+
+# ---------------------------------------------------------------------------
+# AI 宸ュ叿绠憋細鏂囩珷灏侀潰 AI 鐢熷浘锛堝紓姝ヤ换鍔★細鐢熷浘 鈫? 涓婁紶 WP 璁惧皝闈紝POST /api/toolbox/cover 绉掑洖锛屽墠绔疆璇?GET 鐘舵€侊級
+# ---------------------------------------------------------------------------
+
+class CoverBody(BaseModel):
+    """AI 閰嶅浘璇锋眰浣擄細post_id 蹇呭～锛宼itle/column/content 鐢?WP 浼犲叆鐢ㄤ簬鐢熸垚鎻愮ず璇嶃€?"""
+    post_id: int
+    title: str = ""
+    column: str = ""
+    content: str = ""  # 鏂囩珷姝ｆ枃/鎽樿瑕佺偣锛堢敤浜庡皝闈㈡彮绀鸿瘝鍒囧悎鍐呭锛夈€?"""
+
+
+_cover_jobs: dict = {}
+_cover_jobs_lock = threading.Lock()
+_COVER_JOB_TTL = 3600  # 浠诲姟缁撴灉淇濈暀 1 灏忔椂
+
+
+def _cover_job_create(post_id: int, title: str, column: str, content: str = "") -> str:
+    import uuid
+    import time as _t
+    job_id = uuid.uuid4().hex[:12]
+    now = _t.time()
+    with _cover_jobs_lock:
+        stale = [k for k, v in _cover_jobs.items() if now - v.get("ts", 0) > _COVER_JOB_TTL]
+        for k in stale:
+            _cover_jobs.pop(k, None)
+        _cover_jobs[job_id] = {
+            "status": "running", "post_id": int(post_id), "title": title,
+            "column": column, "content": str(content or ""), "message": "", "ts": now,
+        }
+    return job_id
+
+
+def _cover_job_set(job_id: str, status: str, message: str = "") -> None:
+    with _cover_jobs_lock:
+        if job_id in _cover_jobs:
+            _cover_jobs[job_id]["status"] = status
+            _cover_jobs[job_id]["message"] = message
+
+
+def _cover_job_run(job_id: str) -> None:
+    """后台线程：AI 生图 鈫? 浣撴枃浠?/data URI 鈫? WP /toolbox/cover 璁剧疆灏侀潰銆?"""
+    import base64
+    import time as _t
+    with _cover_jobs_lock:
+        job = _cover_jobs.get(job_id)
+        if not job:
+            return
+        post_id, title, column = job["post_id"], job["title"], job["column"]
+        content_hint = str(job.get("content") or "")
+    started = _t.time()
+    try:
+        from agents.image import ImageAgent
+        cfg = get_config()
+        cfg_dict = cfg.raw if hasattr(cfg, "raw") else cfg
+        agent = ImageAgent(cfg_dict, core=None, dry_run=False)
+        if getattr(agent.provider, "name", "") == "noop":
+            _cover_job_set(job_id, "failed",
+                           "未配置生图服务：请在后台「AI 自动博客 → 图片 API 配置」填写 Provider=dashscope 与百炼 API Key（或后端 config.yaml image 段），保存后约 5 分钟内自动同步生效")
+            return
+        topic = title or "通用文章封面"
+        result = agent.generate_image(column, topic, task_id=f"toolbox-{job_id}", final_title=title,
+                                      content_hint=content_hint)
+        local_path = result.get("local_path") if isinstance(result, dict) else None
+        if not local_path:
+            note = result.get("note") if isinstance(result, dict) else ""
+            _cover_job_set(job_id, "failed", note or "生图失败（未配置生图服务或服务不可用）")
+            return
+        with open(local_path, "rb") as f:
+            data = f.read()
+        mime = "image/png" if str(local_path).lower().endswith(".png") else "image/webp"
+        data_uri = f"data:{mime};base64," + base64.b64encode(data).decode()
+
+        from publishers.wp_rest import _config, _endpoint, _request_with_retry
+        base, path, token, timeout, retries, backoff = _config()
+        if not token:
+            _cover_job_set(job_id, "failed", "WP API Token 未配置")
+            return
+        resp = _request_with_retry(
+            "POST", _endpoint("/toolbox/cover"),
+            json={"post_id": post_id, "image_url": data_uri},
+            token=token, timeout=timeout, retries=retries, backoff=backoff,
+            task_id=f"toolbox-{job_id}",
+        )
+        d = resp.json()
+        results = d.get("results") if isinstance(d, dict) else None
+        first = results[0] if isinstance(results, list) and results else {}
+        if isinstance(d, dict) and d.get("ok") and isinstance(first, dict) and first.get("ok"):
+            _cover_job_set(job_id, "done",
+                           f"已生成并设置封面（附件 {first.get('attachment_id', '')}，耗时 {int(_t.time() - started)}s）")
+        else:
+            err = ""
+            if isinstance(d, dict):
+                err = str(d.get("error") or first.get("error") or "WP 端设置封面失败")
+            _cover_job_set(job_id, "failed", err)
+    except Exception as e:
+        logger.warning("ai-cover job exception job=%s: %s", job_id, e)
+        _cover_job_set(job_id, "failed", f"后端异常：{e}")
+
+
+@app.post("/api/toolbox/cover")
+def toolbox_cover(body: CoverBody) -> dict:
+    """AI 閰嶅浘锛氬垱寤哄紓姝ョ敓鍥句换鍔★紙绉掑洖 job_id锛夛紝鍚庡彴绾跨▼鐢熸垚骞朵笂浼?WP銆?"""
+    import threading as _th
+    if not body.post_id or int(body.post_id) <= 0:
+        raise HTTPException(status_code=400, detail="post_id 必填")
+    job_id = _cover_job_create(int(body.post_id), (body.title or "").strip(),
+                               (body.column or "").strip().lower(), (body.content or "").strip())
+
+    def _worker():
+        try:
+            _cover_job_run(job_id)
+        except Exception:
+            logger.exception("ai-cover worker failed job=%s", job_id)
+            _cover_job_set(job_id, "failed", "后台任务异常，详见后端日志")
+
+    _th.Thread(target=_worker, daemon=True).start()
+    return {"ok": True, "job_id": job_id}
+
+
+@app.post("/api/sync")
+def api_sync() -> dict:
+    """强制同步 WP 配置（/health 模型 + /settings 开关），AI 配图前调用，确保生图 Key 最新。"""
+    from scheduler.wp_sync import sync_from_wp
+    try:
+        ok = sync_from_wp(force=True)
+        return {"ok": bool(ok), "synced": bool(ok)}
+    except Exception as e:
+        logger.warning("api sync failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/toolbox/cover/{job_id}")
+def toolbox_cover_status(job_id: str) -> dict:
+    """鏌ヨ AI 閰嶅浘浠诲姟鐘舵€侊細running / done / failed銆?"""
+    with _cover_jobs_lock:
+        job = _cover_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期")
+    return {"ok": True, "job_id": job_id, "post_id": job["post_id"],
+            "status": job["status"], "message": job["message"]}
 
 
 if __name__ == "__main__":

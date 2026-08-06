@@ -314,30 +314,6 @@
 			} );
 		}
 
-		/* 修复旧文「站内相关」为类别名 */
-		var fixRelatedBtn = document.getElementById( 'abp-toolbox-fix-related' );
-		var fixRelatedMsg = document.getElementById( 'abp-toolbox-fix-msg' );
-		if ( fixRelatedBtn ) {
-			fixRelatedBtn.addEventListener( 'click', function () {
-				if ( ! window.confirm( '将全站文章中的「站内相关：关键词」统一替换为「站内相关：文章分类名」？会改动已发布文章正文，建议先备份数据库。' ) ) { return; }
-				fixRelatedBtn.disabled = true;
-				if ( fixRelatedMsg ) { fixRelatedMsg.textContent = '处理中…'; fixRelatedMsg.style.color = ''; }
-				fetch( abp.toolboxUrl + '/fix-related', {
-					method: 'POST', headers: headers(), credentials: 'same-origin'
-				} ).then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '响应解析失败 HTTP ' + r.status }; } ); } )
-					.then( function ( d ) {
-						if ( d && d.ok ) {
-							if ( fixRelatedMsg ) { fixRelatedMsg.textContent = '完成：处理 ' + d.processed + ' 篇，更新 ' + d.updated + ' 篇，跳过 ' + d.skipped + ' 篇'; fixRelatedMsg.style.color = '#00a32a'; }
-						} else if ( fixRelatedMsg ) {
-							fixRelatedMsg.textContent = '失败：' + ( ( d && ( d.error || d.message || d.detail ) ) || '未知错误' );
-							fixRelatedMsg.style.color = '#b32d2e';
-						}
-					} )
-					.catch( function ( e ) { if ( fixRelatedMsg ) { fixRelatedMsg.textContent = '网络错误：' + ( e && e.message ? e.message : e ); fixRelatedMsg.style.color = '#b32d2e'; } } )
-					.finally( function () { fixRelatedBtn.disabled = false; } );
-			} );
-		}
-
 		/* 行内操作（事件委托） */
 		document.addEventListener( 'click', function ( ev ) {
 			var el = ev.target;
@@ -545,31 +521,33 @@
 
 		var tbLoadPosts = function () {
 			if ( ! tbTbody ) { return; }
-			tbTbody.innerHTML = '<tr><td colspan="6">加载中…</td></tr>';
+			tbTbody.innerHTML = '<tr><td colspan="7">加载中…</td></tr>';
 			fetch( abp.ajaxUrl + '?action=abp_toolbox_posts&_ajax_nonce=' + encodeURIComponent( abp.logNonce ), { credentials: 'same-origin' } )
 				.then( function ( r ) { return r.json(); } )
 				.then( function ( d ) {
-					if ( ! d || ! d.success ) { tbTbody.innerHTML = '<tr><td colspan="6">加载失败</td></tr>'; return; }
+					if ( ! d || ! d.success ) { tbTbody.innerHTML = '<tr><td colspan="7">加载失败</td></tr>'; return; }
 					tbPosts = d.data || [];
 					tbRender();
 				} )
-				.catch( function () { tbTbody.innerHTML = '<tr><td colspan="6">加载失败</td></tr>'; } );
+				.catch( function () { tbTbody.innerHTML = '<tr><td colspan="7">加载失败</td></tr>'; } );
 		};
 
 		var tbRender = function () {
 			if ( ! tbTbody ) { return; }
-			if ( ! tbPosts.length ) { tbTbody.innerHTML = '<tr><td colspan="6">暂无文章</td></tr>'; return; }
+			if ( ! tbPosts.length ) { tbTbody.innerHTML = '<tr><td colspan="7">暂无文章</td></tr>'; return; }
 			var html = '';
 			tbPosts.forEach( function ( p ) {
 				var sum = p.has_excerpt ? '<span class="abp-status-yes">✓ 有</span>' : '<span class="abp-status-no">— 无</span>';
 				var cmt = p.comment_count > 0 ? p.comment_count + ' 条' : '—';
 				var top = p.topics && p.topics.length ? '<span class="abp-status-yes">✓ ' + esc( p.topics.slice( 0, 2 ).join( '、' ) ) + '</span>' : '<span class="abp-status-no">— 无</span>';
+				var cov = p.has_cover ? '<span class="abp-status-yes">✓ 有</span>' : '<span class="abp-status-no">— 无</span>';
 				html += '<tr><td class="abp-col-check"><input type="checkbox" class="abp-tb-check" value="' + p.ID + '" /></td>' +
 					'<td class="abp-tb-title"><a href="' + abp.homeUrl + '/index.php/archives/' + p.ID + '" target="_blank">' + esc( p.post_title ) + '</a></td>' +
 					'<td class="abp-tb-date">' + esc( p.post_date ) + '</td>' +
 					'<td class="abp-tb-status">' + sum + '</td>' +
 					'<td class="abp-tb-status">' + cmt + '</td>' +
-					'<td class="abp-tb-status">' + top + '</td></tr>';
+					'<td class="abp-tb-status">' + top + '</td>' +
+					'<td class="abp-tb-status">' + cov + '</td></tr>';
 			} );
 			tbTbody.innerHTML = html;
 			tbUpdateSel();
@@ -616,7 +594,7 @@
 				var okN = 0, failN = 0, cur = 0;
 				var next = function () {
 					if ( cur >= ids.length ) {
-						var msg = '批量' + ( 'summary' === action ? '摘要' : 'comments' === action ? '评论' : '话题' ) + '完成：成功 ' + okN + ' 篇，失败 ' + failN + ' 篇';
+						var msg = '批量' + ( 'summary' === action ? '摘要' : 'comments' === action ? '评论' : 'cover' === action ? '配图' : '话题' ) + '完成：成功 ' + okN + ' 篇，失败 ' + failN + ' 篇';
 						tbShow( msg, failN > 0 && 0 === okN );
 						alert( msg );
 						if ( btn ) { btn.disabled = false; }
@@ -663,6 +641,75 @@
 		} );
 		document.getElementById( 'abp-toolbox-topics' ) && document.getElementById( 'abp-toolbox-topics' ).addEventListener( 'click', function ( e ) {
 			tbBatch( 'topics', {}, e.target );
+		} );
+
+		// AI 配图：勾选文章 → 后端异步 AI 生成封面（轮询 job 状态，完成后刷新列表）
+		document.getElementById( 'abp-toolbox-cover' ) && document.getElementById( 'abp-toolbox-cover' ).addEventListener( 'click', function ( e ) {
+			var ids = tbSelected();
+			if ( ! ids.length ) { tbShow( '请先勾选文章（可多选）', true ); alert( '请先勾选文章' ); return; }
+			if ( ! window.confirm( '将为勾选的 ' + ids.length + ' 篇文章用 AI 生成封面（消耗生图服务额度，每篇约 10-60 秒），继续？' ) ) { return; }
+			var btn = e.target;
+			btn.disabled = true;
+			tbShow( '正在创建 AI 配图任务…', false );
+			fetch( tbUrl + '/ai-cover', {
+				method: 'POST', headers: headers(),
+				body: JSON.stringify( { post_ids: ids } ), credentials: 'same-origin'
+			} ).then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '响应解析失败 HTTP ' + r.status }; } ); } )
+				.then( function ( d ) {
+					if ( ! d || ! d.ok || ! d.jobs ) {
+						var em = ( d && ( d.error || d.detail ) ) || '未知错误';
+						tbShow( '创建失败：' + em, true );
+						alert( '创建 AI 配图任务失败：' + em );
+						btn.disabled = false;
+						return;
+					}
+					var jobs = d.jobs;
+					var okN = 0, failN = 0, cur = 0;
+					var next = function () {
+						if ( cur >= jobs.length ) {
+							var msg = 'AI 配图完成：成功 ' + okN + ' 篇，失败 ' + failN + ' 篇';
+							tbShow( msg, failN > 0 && 0 === okN );
+							alert( msg );
+							btn.disabled = false;
+							tbLoadPosts();
+							return;
+						}
+						var job = jobs[ cur ];
+						cur++;
+						if ( ! job.job_id ) { failN++; tbShow( '文章 ' + job.post_id + ' 任务创建失败：' + ( job.error || '' ), true ); next(); return; }
+						var poll = function ( tries ) {
+							fetch( tbUrl + '/ai-cover/' + encodeURIComponent( job.job_id ), { headers: headers(), credentials: 'same-origin' } )
+								.then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '解析失败' }; } ); } )
+								.then( function ( s ) {
+									if ( s && s.status === 'done' ) {
+										okN++;
+										tbShow( 'AI 配图 ' + cur + '/' + jobs.length + '（文章 ' + job.post_id + '）完成', false );
+										next();
+									} else if ( s && s.status === 'failed' ) {
+										failN++;
+										tbShow( '文章 ' + job.post_id + ' 失败：' + ( s.message || '' ), true );
+										next();
+									} else if ( tries > 0 ) {
+										tbShow( 'AI 配图 ' + cur + '/' + jobs.length + '（文章 ' + job.post_id + '）生成中…', false );
+										setTimeout( function () { poll( tries - 1 ); }, 3000 );
+									} else {
+										failN++;
+										tbShow( '文章 ' + job.post_id + ' 生成超时（可稍后重新点配图）', true );
+										next();
+									}
+								} )
+								.catch( function () { failN++; next(); } );
+						};
+						poll( 60 );
+					};
+					next();
+				} )
+				.catch( function ( er ) {
+					var em2 = ( er && er.message ? er.message : er );
+					tbShow( '网络错误：' + em2, true );
+					alert( '网络错误：' + em2 );
+					btn.disabled = false;
+				} );
 		} );
 
 		tbLoadPosts();

@@ -265,7 +265,7 @@ tr.abp-disabled-row {
 	margin-top: 4px;
 }
 
-/* ---------- AI ¹¤¾ßÏä ---------- */
+/* ---------- AI ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ---------- */
 #abp-toolbox-card .abp-toolbox-row {
 	display: flex;
 	gap: 8px;
@@ -275,6 +275,7 @@ tr.abp-disabled-row {
 }
 #abp-toolbox-card .abp-toolbox-row select { min-width: 280px; }
 #abp-toolbox-card .abp-toolbox-sep { color: #c3c4c7; }
+#abp-toolbox-card .abp-toolbox-cover-url { width: 320px; }
 #abp-toolbox-card .abp-toolbox-result {
 	margin-top: 8px;
 	padding: 10px 12px;
@@ -285,7 +286,7 @@ tr.abp-disabled-row {
 	color: #2271b1;
 }
 
-/* ---------- AI ¹¤¾ßÏäÅúÁ¿ÁÐ±í ---------- */
+/* ---------- AI ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð±ï¿½ ---------- */
 #abp-toolbox-card .abp-toolbox-table-wrap {
 	max-height: 360px;
 	overflow-y: auto;
