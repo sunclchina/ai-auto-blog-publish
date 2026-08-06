@@ -22,7 +22,7 @@ A-Blog 是「AI 全自动博客」系统的 WordPress 发布端插件，配合 P
 * SEO Meta 描述：自动适配 Yoast（_yoast_wpseo_metadesc）/ RankMath（rank_math_description）/ 通用 _abp_meta_description
 * 封面配图：支持 base64 与 URL 上传媒体库并绑定特色图（1280×720 WebP，适配青简主题）
 * 发布控制：草稿 / 发布 / 定时（future + publish_date），后台「发布开关」可强制仅存草稿
-* 模型配置自动探测：青简主题（qy_ai_api_key）→ 其他插件探测表 → 插件自身配置，DeepSeek 单 key 多模型分发
+* 模型配置自动探测：青简主题（qy_ai_api_key）→ 插件自身配置，DeepSeek 单 key 多模型分发
 * 完整后台：开关列表、调度配置、API Token 生成、任务日志（最近 50 条 AJAX 刷新）、模型探测结果展示
 
 **REST API（全部需 Bearer Token）**
@@ -52,7 +52,7 @@ A-Blog 为全家桶：**插件（PHP）+ 伴生服务（Python）**。ZIP 内已
 
 = 模型从哪里来？ =
 
-探测顺序：① 青简主题 `qy_ai_api_key` option + `qy_ai_model` theme_mod；② 后台「其他插件探测表」配置的插件；③ 插件自身「DeepSeek API Key」配置。均未配置时 `/health` 返回 `no_model_configured`，Python 侧将拦截任务不消耗 Token。
+探测顺序：① 青简主题 `qy_ai_api_key` option + `qy_ai_model` theme_mod；② 插件自身「DeepSeek API Key」配置。均未配置时 `/health` 返回 `no_model_configured`，Python 侧将拦截任务不消耗 Token。
 
 = API Token 丢了怎么办？ =
 

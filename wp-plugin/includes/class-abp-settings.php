@@ -6,7 +6,7 @@
  * 页面区块：
  *   1. 运行状态卡（模型探测结果展示：调 abp_get_models，显示当前生效配置来源）
  *   2. 开关列表（AI 写文总开关 / 三栏目独立开关 / 配图 / 发布）
- *   3. 配置表单（settings_fields + submit：篇数、Token 额度、时段、比例、模型映射、图片 API、探测表）
+ *   3. 配置表单（settings_fields + submit：篇数、Token 额度、时段、比例、模型映射、图片 API）
  *   4. API Token（生成/显示/复制，Python 侧 Bearer 认证用）
  *   5. 任务日志（wp_abp_log 最近 50 条，AJAX 刷新）
  *
@@ -56,7 +56,6 @@ class ABP_Settings {
 				'endpoint' => '',
 				'model'    => '',
 			),
-			'probe_plugins'         => array(), // 其他已知插件探测表（默认空）。
 			'api_token'             => '',
 			'max_tags'              => 10,
 			'python_base'           => '',   // Python 伴生服务地址，空=默认 http://127.0.0.1:8080
@@ -232,12 +231,6 @@ class ABP_Settings {
 			'model'    => isset( $input['image_api']['model'] ) ? sanitize_text_field( (string) $input['image_api']['model'] ) : ( isset( $old_img['model'] ) ? $old_img['model'] : '' ),
 		);
 
-		// 其他已知插件探测表：支持 JSON 数组或每行 source|option_key|theme_mod_key。
-		$clean['probe_plugins'] = isset( $old['probe_plugins'] ) && is_array( $old['probe_plugins'] ) ? $old['probe_plugins'] : array();
-		if ( isset( $input['probe_plugins_text'] ) ) {
-			$clean['probe_plugins'] = self::parse_probe_plugins( (string) $input['probe_plugins_text'] );
-		}
-
 		// API Token：表单不可改，仅生成按钮更新；保存时沿用旧值。
 		$clean['api_token'] = isset( $old['api_token'] ) ? $old['api_token'] : '';
 
@@ -259,51 +252,6 @@ class ABP_Settings {
 		}
 
 		return $clean;
-	}
-
-	/**
-	 * 解析探测表文本 → 数组。
-	 *
-	 * @param string $text JSON 或行格式。
-	 * @return array
-	 */
-	private static function parse_probe_plugins( $text ) {
-		$text = trim( (string) $text );
-		if ( '' === $text ) {
-			return array();
-		}
-
-		// 优先 JSON。
-		$decoded = json_decode( $text, true );
-		if ( is_array( $decoded ) ) {
-			$out = array();
-			foreach ( $decoded as $item ) {
-				if ( is_array( $item ) ) {
-					$out[] = array(
-						'source'       => isset( $item['source'] ) ? sanitize_text_field( (string) $item['source'] ) : '',
-						'option_key'   => isset( $item['option_key'] ) ? sanitize_key( (string) $item['option_key'] ) : '',
-						'theme_mod_key'=> isset( $item['theme_mod_key'] ) ? sanitize_key( (string) $item['theme_mod_key'] ) : '',
-					);
-				}
-			}
-			return $out;
-		}
-
-		// 行格式：source|option_key|theme_mod_key。
-		$out = array();
-		foreach ( preg_split( '/\r?\n/', $text ) as $line ) {
-			$line = trim( $line );
-			if ( '' === $line || '#' === $line[0] ) {
-				continue;
-			}
-			$parts = array_map( 'trim', explode( '|', $line ) );
-			$out[] = array(
-				'source'        => isset( $parts[0] ) ? sanitize_text_field( $parts[0] ) : '',
-				'option_key'    => isset( $parts[1] ) ? sanitize_key( $parts[1] ) : '',
-				'theme_mod_key' => isset( $parts[2] ) ? sanitize_key( $parts[2] ) : '',
-			);
-		}
-		return $out;
 	}
 
 	/**
@@ -556,13 +504,6 @@ class ABP_Settings {
 								</td>
 							</tr>
 							<tr>
-								<th scope="row"><label for="abp_probe">其他插件探测表</label><br /><small>（模型探测顺序第②级）</small></th>
-								<td>
-									<textarea id="abp_probe" name="abp_settings[probe_plugins_text]" rows="4" class="large-text code" placeholder='每行：来源标识|option_key|theme_mod_key&#10;或粘贴 JSON 数组 [{ "source":"xx","option_key":"yy","theme_mod_key":"zz" }]'><?php echo esc_textarea( self::probe_plugins_to_text( $settings['probe_plugins'] ) ); ?></textarea>
-									<span class="description">默认空：仅探测青简主题与插件自身。示例行：<code>my-plugin|my_ai_key|</code></span>
-								</td>
-							</tr>
-							<tr>
 								<th scope="row"><label for="abp_max_tags">单篇标签上限</label></th>
 								<td><input type="number" id="abp_max_tags" name="abp_settings[max_tags]" min="1" max="30" value="<?php echo esc_attr( $settings['max_tags'] ); ?>" class="small-text" /></td>
 							</tr>
@@ -627,7 +568,7 @@ class ABP_Settings {
 								<tr><th>图片 API</th><td><?php echo esc_html( ( $summary['image_api']['provider'] ? $summary['image_api']['provider'] . ' / ' : '' ) . ( $summary['image_api']['model'] ?: '未配置' ) ); ?></td></tr>
 							</tbody>
 						</table>
-						<p class="description">探测顺序：青简主题（qy_ai_api_key）→ 其他插件探测表 → 插件自身配置。</p>
+						<p class="description">探测顺序：青简主题（qy_ai_api_key）→ 插件自身配置。</p>
 					</div>
 				</div>
 			</div>
@@ -723,23 +664,6 @@ class ABP_Settings {
 			<span class="description"><?php echo esc_html( $hint ); ?></span>
 		<?php endif; ?>
 		<?php
-	}
-
-	/**
-	 * 探测表数组 → 展示文本。
-	 *
-	 * @param array $plugins 探测表。
-	 * @return string
-	 */
-	private static function probe_plugins_to_text( $plugins ) {
-		if ( empty( $plugins ) ) {
-			return '';
-		}
-		$lines = array();
-		foreach ( (array) $plugins as $p ) {
-			$lines[] = ( isset( $p['source'] ) ? $p['source'] : '' ) . '|' . ( isset( $p['option_key'] ) ? $p['option_key'] : '' ) . '|' . ( isset( $p['theme_mod_key'] ) ? $p['theme_mod_key'] : '' );
-		}
-		return implode( "\n", $lines );
 	}
 
 	/**

@@ -5,17 +5,15 @@
  * 探测顺序（硬性规定，不得调整）：
  *   ① 青简主题：get_option('qy_ai_api_key') 非空
  *      → provider=theme, source=qingya, model=get_theme_mod('qy_ai_model','deepseek-chat')
- *   ② 其他已知插件探测表（abp_settings['probe_plugins']，可配置，默认空数组）
- *      → provider=plugin, source=各条目的 source 字段
- *   ③ 插件自身 abp_settings['deepseek_api_key'] 非空
+ *   ② 插件自身 abp_settings['deepseek_api_key'] 非空
  *      → provider=self, source=abp_settings
- *   ④ 均未配置 → provider=none（REST /health 返回 no_model_configured，
+ *   ③ 均未配置 → provider=none（REST /health 返回 no_model_configured，
  *      Python 层据此拦截任务、不消耗 Token）
  *
  * 返回结构（严格对齐 3.4）：
  *   array(
  *     'provider'        => 'theme|plugin|self|none',
- *     'source'          => 来源标识（qingya / 插件名 / abp_settings / ''），
+ *     'source'          => 来源标识（qingya / abp_settings / ''），
  *     'deepseek_api_key'=> 探测到的 DeepSeek API Key（仅供 Python 侧经 Bearer 接口同步，不入日志），
  *     'models'          => array('stock'=>, 'tech'=>, 'reading'=>, 'image'=>),
  *     'image_api'       => array('provider'=>, 'key'=>, 'endpoint'=>, 'model'=>),
@@ -77,7 +75,6 @@ class ABP_Models {
 				'endpoint' => '',
 				'model'    => '',
 			),
-			'probe_plugins'    => array(),
 		);
 		$options  = get_option( 'abp_settings', array() );
 		$settings = wp_parse_args( is_array( $options ) ? $options : array(), $defaults );
@@ -85,9 +82,6 @@ class ABP_Models {
 		// 逐层补齐缺失的子数组/子字段，保证调用方取值不报错。
 		$settings['models']    = wp_parse_args( isset( $settings['models'] ) && is_array( $settings['models'] ) ? $settings['models'] : array(), $defaults['models'] );
 		$settings['image_api'] = wp_parse_args( isset( $settings['image_api'] ) && is_array( $settings['image_api'] ) ? $settings['image_api'] : array(), $defaults['image_api'] );
-		if ( ! is_array( $settings['probe_plugins'] ) ) {
-			$settings['probe_plugins'] = array();
-		}
 
 		return $settings;
 	}
@@ -127,42 +121,6 @@ class ABP_Models {
 			foreach ( array( 'stock', 'tech', 'reading' ) as $col ) {
 				$m = isset( $settings['models'][ $col ] ) ? trim( (string) $settings['models'][ $col ] ) : '';
 				$result['models'][ $col ] = '' !== $m ? $m : $qy_model;
-			}
-			$result['models']['image'] = isset( $settings['models']['image'] ) ? trim( (string) $settings['models']['image'] ) : '';
-			$this->cache               = $result;
-			return $result;
-		}
-
-		// ② 其他已知插件探测表（可配置，默认空数组）。
-		// 条目格式：array('source' => 来源标识, 'option_key' => 'xx', 'theme_mod_key' => 'yy'(可选))
-		foreach ( (array) $settings['probe_plugins'] as $probe ) {
-			if ( ! is_array( $probe ) ) {
-				continue;
-			}
-			$probe     = wp_parse_args(
-				$probe,
-				array( 'source' => '', 'option_key' => '', 'theme_mod_key' => '' )
-			);
-			$opt_key   = sanitize_key( (string) $probe['option_key'] );
-			$mod_key   = sanitize_key( (string) $probe['theme_mod_key'] );
-			$src       = sanitize_text_field( (string) $probe['source'] );
-			if ( '' === $opt_key ) {
-				continue;
-			}
-			$probe_key = get_option( $opt_key, '' );
-			if ( ! is_string( $probe_key ) || '' === trim( $probe_key ) ) {
-				continue;
-			}
-			$probe_model = $mod_key ? get_theme_mod( $mod_key, '' ) : '';
-			if ( ! is_string( $probe_model ) || '' === trim( $probe_model ) ) {
-				$probe_model = 'deepseek-chat';
-			}
-			$result['provider']         = 'plugin';
-			$result['source']           = '' !== $src ? $src : $opt_key;
-			$result['deepseek_api_key'] = $probe_key;
-			foreach ( array( 'stock', 'tech', 'reading' ) as $col ) {
-				$m = isset( $settings['models'][ $col ] ) ? trim( (string) $settings['models'][ $col ] ) : '';
-				$result['models'][ $col ] = '' !== $m ? $m : $probe_model;
 			}
 			$result['models']['image'] = isset( $settings['models']['image'] ) ? trim( (string) $settings['models']['image'] ) : '';
 			$this->cache               = $result;
