@@ -268,6 +268,7 @@ class ABP_Updater {
 			'current'     => ABP_VERSION,
 			'latest'      => $remote_ver,
 			'has_update'  => $has_update,
+			'stale'       => version_compare( $remote_ver, ABP_VERSION, '<' ), // 远端 Release 低于当前版本（仓库未同步新 Release）。
 			'release_url' => isset( $release['html_url'] ) ? $release['html_url'] : '',
 			'package'     => self::package_url( $release ),
 			'update_url'  => $has_update ? admin_url( 'update-core.php' ) : '',

@@ -296,8 +296,13 @@
 									updateStatus.style.color = '#d63638';
 								}
 							} else if ( updateStatus ) {
-								updateStatus.textContent = '已是最新版本 v' + v.latest;
-								updateStatus.style.color = '#00a32a';
+								if ( v.stale ) {
+									updateStatus.textContent = '远端仓库最新为 v' + v.latest + '，低于当前 v' + v.current + '（GitHub Release 未同步）';
+									updateStatus.style.color = '#b32d2e';
+								} else {
+									updateStatus.textContent = '已是最新版本 v' + v.latest;
+									updateStatus.style.color = '#00a32a';
+								}
 							}
 						} else if ( updateStatus ) {
 							updateStatus.textContent = ( d && d.data ) ? d.data : '检查失败';

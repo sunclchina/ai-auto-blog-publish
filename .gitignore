@@ -12,3 +12,7 @@ __pycache__/
 dist/
 # 凭据文件（绝不入库）
 *.git-credentials
+# 凭据调试残留（曾出现 cred-dbg.txt 含真实 PAT，禁止再次入库）
+deploy/cred-*
+deploy/debug-cred*
+deploy/release-retry*
