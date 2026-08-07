@@ -1,7 +1,7 @@
 # A-Blog 全家桶打包（等价 package-plugin.bat，供命令行/CI 使用）
 $ErrorActionPreference = 'Stop'
 $root = 'E:\my-project\A-Blog'
-$ver = '1.5.24'
+$ver = '1.5.25'
 $tmp  = Join-Path $root 'dist\_pkg_tmp'
 $dst  = Join-Path $tmp 'ai-auto-blog-publish'
 $out  = Join-Path $root ("dist\ai-auto-blog-publish-v{0}.zip" -f $ver)

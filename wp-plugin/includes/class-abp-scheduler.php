@@ -424,12 +424,13 @@ class ABP_Scheduler {
 	 * @return string
 	 */
 	private static function column_category( $column ) {
+		// 分类对齐主题已有分类（翁老：industry/it-notes 归入「行业」「IT」）。
 		$map = array(
-			'stock'    => 'a-share-review',
-			'tech'     => 'it-notes',
-			'reading'  => 'reading-classics',
-			'book'     => 'reading-classics',
-			'industry' => 'industry',
+			'stock'    => 'a-share-review',  // 主题已有：股市
+			'tech'     => 'it',              // 主题已有：IT
+			'reading'  => 'reading-classics', // 主题已有：读书
+			'book'     => 'reading-classics', // 主题已有：读书
+			'industry' => '行业',            // 主题已有：行业
 		);
 		return isset( $map[ $column ] ) ? $map[ $column ] : 'uncategorized';
 	}

@@ -67,7 +67,7 @@ class ABP_Industry {
 			'column'       => 'industry',
 			'final_title'  => $title,
 			'content_html' => $html,
-			'category'     => 'industry',
+			'category'     => '行业',            // 主题已有「行业」分类（翁老：industry 归入行业）
 			'tags'         => array( '行业综述', $topic ),
 			'status'       => 'publish',
 		);

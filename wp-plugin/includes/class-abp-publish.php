@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class ABP_Publish {
 
 	/**
-	 * 分类 slug 映射表（总纲 7：a-share-review / it-notes / reading-classics）。
+	 * 分类 slug 映射表（对齐主题已有分类：股市 / IT / 读书 / 行业）。
 	 * key 为栏目名/常见别名（小写），value 为站点分类 slug。
 	 */
 	private static $category_slug_map = array(
@@ -33,15 +33,18 @@ class ABP_Publish {
 		'stock'       => 'a-share-review',
 		'股市'        => 'a-share-review',
 		'股票'        => 'a-share-review',
-		'it技术笔记'  => 'it-notes',
-		'技术笔记'    => 'it-notes',
-		'技术'        => 'it-notes',
-		'tech'        => 'it-notes',
+		'it技术笔记'  => 'it',
+		'技术笔记'    => 'it',
+		'技术'        => 'it',
+		'tech'        => 'it',
 		'读书与国学'  => 'reading-classics',
 		'读书'        => 'reading-classics',
 		'国学'        => 'reading-classics',
 		'reading'     => 'reading-classics',
 		'book'        => 'reading-classics',
+		'行业综述'    => '行业',
+		'行业'        => '行业',
+		'industry'    => '行业',
 	);
 
 	/**
