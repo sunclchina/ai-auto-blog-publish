@@ -63,6 +63,7 @@ class ABP_Models {
 	private function get_settings() {
 		$defaults = array(
 			'deepseek_api_key' => '',
+			'model'            => 'deepseek-chat', // 统一 AI 模型（v1.5.7：栏目不再区分）
 			'models'           => array(
 				'stock'   => 'deepseek-chat',
 				'tech'    => 'deepseek-chat',
@@ -117,12 +118,12 @@ class ABP_Models {
 			$result['provider']         = 'theme';
 			$result['source']           = 'qingya';
 			$result['deepseek_api_key'] = $qy_key;
-			// 各栏目默认模型取主题模型；后台映射表（abp_settings.models）若显式配置了栏目模型则优先。
-			foreach ( array( 'stock', 'tech', 'reading' ) as $col ) {
-				$m = isset( $settings['models'][ $col ] ) ? trim( (string) $settings['models'][ $col ] ) : '';
-				$result['models'][ $col ] = '' !== $m ? $m : $qy_model;
-			}
-			$result['models']['image'] = isset( $settings['models']['image'] ) ? trim( (string) $settings['models']['image'] ) : '';
+			// 统一模型：后台「AI 模型」优先，否则主题模型（v1.5.7：栏目不再区分）。
+			$m = self::unified_model( $settings, $qy_model );
+			$result['models']['stock'] = $m;
+			$result['models']['tech']  = $m;
+			$result['models']['reading'] = $m;
+			$result['models']['image'] = ''; // 生图模型格已废弃，生图用 image_api.model。
 			$this->cache               = $result;
 			return $result;
 		}
@@ -133,11 +134,11 @@ class ABP_Models {
 			$result['provider']         = 'self';
 			$result['source']           = 'abp_settings';
 			$result['deepseek_api_key'] = $self_key;
-			foreach ( array( 'stock', 'tech', 'reading' ) as $col ) {
-				$m = isset( $settings['models'][ $col ] ) ? trim( (string) $settings['models'][ $col ] ) : '';
-				$result['models'][ $col ] = '' !== $m ? $m : 'deepseek-chat';
-			}
-			$result['models']['image'] = isset( $settings['models']['image'] ) ? trim( (string) $settings['models']['image'] ) : '';
+			$m = self::unified_model( $settings, 'deepseek-chat' );
+			$result['models']['stock'] = $m;
+			$result['models']['tech']  = $m;
+			$result['models']['reading'] = $m;
+			$result['models']['image'] = '';
 			$this->cache               = $result;
 			return $result;
 		}
@@ -145,6 +146,21 @@ class ABP_Models {
 		// ④ 均未配置。
 		$this->cache = $result;
 		return $result;
+	}
+
+	/**
+	 * 统一模型名：后台「AI 模型」优先，否则旧 models 表首栏，否则默认值。
+	 *
+	 * @param array  $settings  设置数组。
+	 * @param string $fallback  默认（主题模型或 deepseek-chat）。
+	 * @return string
+	 */
+	private static function unified_model( $settings, $fallback ) {
+		$m = isset( $settings['model'] ) ? trim( (string) $settings['model'] ) : '';
+		if ( '' === $m && isset( $settings['models']['stock'] ) ) {
+			$m = trim( (string) $settings['models']['stock'] );
+		}
+		return '' !== $m ? $m : $fallback;
 	}
 
 	/**

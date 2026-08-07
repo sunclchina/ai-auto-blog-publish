@@ -8,11 +8,6 @@
  *   GET    /ai-auto-blog/v1/categories      站点分类列表（供 Python 匹配栏目）
  *   POST   /ai-auto-blog/v1/check           指纹查重（fingerprint 或 text）
  *   GET    /ai-auto-blog/v1/written-books   已写书目清单（读书栏目防重复）
- *   GET    /ai-auto-blog/v1/topics          智能选题：今日任务 + 备选列表（代理 Python）
- *   POST   /ai-auto-blog/v1/topics/{id}     人工指定/调整选题（body: topic 或 index）
- *   DELETE /ai-auto-blog/v1/topics/{id}     删除任务（仅 queued/skipped）
- *   POST   /ai-auto-blog/v1/topics/reorder  调整排队顺序（body: task_ids 数组）
- *
  * @package AI_Auto_Blog_Publish
  */
 
@@ -88,73 +83,7 @@ class ABP_REST {
 			)
 		);
 
-		// —— 智能选题中心（代理 Python 侧 /api/topics/*，供后台人工查看/指定/调整/删除）——
-		register_rest_route(
-			ABP_API_NAMESPACE,
-			'/topics',
-			array(
-				'methods'             => 'GET',
-				'callback'            => array( __CLASS__, 'handle_topics_list' ),
-				'permission_callback' => array( __CLASS__, 'check_token' ),
-			)
-		);
-		register_rest_route(
-			ABP_API_NAMESPACE,
-			'/topics/reorder',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( __CLASS__, 'handle_topic_reorder' ),
-				'permission_callback' => array( __CLASS__, 'check_token' ),
-			)
-		);
-		// 注意：task_id 用精确格式（YYYYMMDD-column-序号），避免吞掉 /topics/reorder。
-		register_rest_route(
-			ABP_API_NAMESPACE,
-			'/topics/(?P<task_id>[0-9]{8}-[a-z]+-[0-9]{3})',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( __CLASS__, 'handle_topic_pick' ),
-				'permission_callback' => array( __CLASS__, 'check_token' ),
-			)
-		);
-		register_rest_route(
-			ABP_API_NAMESPACE,
-			'/topics/(?P<task_id>[0-9]{8}-[a-z]+-[0-9]{3})',
-			array(
-				'methods'             => 'DELETE',
-				'callback'            => array( __CLASS__, 'handle_topic_delete' ),
-				'permission_callback' => array( __CLASS__, 'check_token' ),
-			)
-		);
-		register_rest_route(
-			ABP_API_NAMESPACE,
-			'/tasks/(?P<task_id>[0-9]{8}-[a-z]+-[0-9]{3})/run',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( __CLASS__, 'handle_task_run_now' ),
-				'permission_callback' => array( __CLASS__, 'check_token' ),
-			)
-		);
-		register_rest_route(
-			ABP_API_NAMESPACE,
-			'/tasks',
-			array(
-				'methods'             => 'GET',
-				'callback'            => array( __CLASS__, 'handle_tasks_list' ),
-				'permission_callback' => array( __CLASS__, 'check_token' ),
-			)
-		);
-		register_rest_route(
-			ABP_API_NAMESPACE,
-			'/tasks/clear',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( __CLASS__, 'handle_tasks_clear' ),
-				'permission_callback' => array( __CLASS__, 'check_token' ),
-			)
-		);
-
-		// —— 备用选题池（代理 Python /api/pool/*）——
+		// —— 备用选题池（v1.5.0 本地库：WP 数据库读写，后台 UI 与 Python 服务共用）——
 		register_rest_route(
 			ABP_API_NAMESPACE,
 			'/pool',
@@ -184,19 +113,19 @@ class ABP_REST {
 		);
 		register_rest_route(
 			ABP_API_NAMESPACE,
-			'/pool/fill',
+			'/pool/clear',
 			array(
 				'methods'             => 'POST',
-				'callback'            => array( __CLASS__, 'handle_pool_fill' ),
+				'callback'            => array( __CLASS__, 'handle_pool_clear' ),
 				'permission_callback' => array( __CLASS__, 'check_token' ),
 			)
 		);
 		register_rest_route(
 			ABP_API_NAMESPACE,
-			'/pool/clear',
+			'/pool/fill',
 			array(
 				'methods'             => 'POST',
-				'callback'            => array( __CLASS__, 'handle_pool_clear' ),
+				'callback'            => array( __CLASS__, 'handle_pool_fill' ),
 				'permission_callback' => array( __CLASS__, 'check_token' ),
 			)
 		);
@@ -233,6 +162,80 @@ class ABP_REST {
 			array(
 				'methods'             => 'DELETE',
 				'callback'            => array( __CLASS__, 'handle_pool_delete' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
+
+		// —— 任务队列（v1.5.0 本地库：后台 UI 管理 + Python 服务创建/回报状态）——
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/tasks',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'handle_tasks_list' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/tasks',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_tasks_create' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/tasks/clear',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_tasks_clear' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/tasks/(?P<task_id>[0-9]{8}-[a-z]+-[0-9]{3})',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( __CLASS__, 'handle_task_get' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/tasks/(?P<task_id>[0-9]{8}-[a-z]+-[0-9]{3})',
+			array(
+				'methods'             => 'DELETE',
+				'callback'            => array( __CLASS__, 'handle_task_delete' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/tasks/(?P<task_id>[0-9]{8}-[a-z]+-[0-9]{3})/run',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_task_run_now' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/tasks/(?P<task_id>[0-9]{8}-[a-z]+-[0-9]{3})/status',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_task_status' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/tasks/(?P<task_id>[0-9]{8}-[a-z]+-[0-9]{3})/pick',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_task_pick' ),
 				'permission_callback' => array( __CLASS__, 'check_token' ),
 			)
 		);
@@ -283,141 +286,7 @@ class ABP_REST {
 				'permission_callback' => array( __CLASS__, 'check_token' ),
 			)
 		);
-		register_rest_route(
-			ABP_API_NAMESPACE,
-			'/toolbox/ai-cover/(?P<job_id>[a-zA-Z0-9\-]+)',
-			array(
-				'methods'             => 'GET',
-				'callback'            => array( __CLASS__, 'handle_toolbox_ai_cover_status' ),
-				'permission_callback' => array( __CLASS__, 'check_token' ),
-			)
-		);
 	}
-
-	/**
-	 * 通用代理：转发到 Python 服务并回传 JSON。
-	 *
-	 * @param string $method HTTP 方法。
-	 * @param string $path   相对 /api 的路径（如 /pool）。
-	 * @param array  $body   可选 JSON body。
-	 * @return WP_REST_Response
-	 */
-	private static function proxy( $method, $path, $body = null, $timeout = 10 ) {
-		$args = array(
-			'timeout' => max( 5, (int) $timeout ),
-			'headers' => array( 'Accept' => 'application/json' ),
-		);
-		if ( null !== $body ) {
-			$args['headers']['Content-Type'] = 'application/json';
-			$args['body']                    = wp_json_encode( $body );
-		}
-		if ( 'GET' === $method ) {
-			$resp = wp_remote_get( self::python_base() . $path, $args );
-		} elseif ( 'POST' === $method ) {
-			$resp = wp_remote_post( self::python_base() . $path, $args );
-		} else {
-			$args['method'] = $method;
-			$resp           = wp_remote_request( self::python_base() . $path, $args );
-		}
-		if ( is_wp_error( $resp ) ) {
-			$err = $resp->get_error_message();
-			// 超时大概率是任务仍在执行（AI 生成 1-3 分钟），单独提示避免误判服务不可达
-			if ( false !== strpos( (string) $err, 'timed out' ) || false !== strpos( (string) $err, 'error 28' ) ) {
-				return self::error( 'Python 任务执行超时（AI 生成可能仍在进行，请稍后在「今日计划任务」查看状态）：' . $err, 504, '', '', 'pool' );
-			}
-			return self::error( 'Python 服务不可达：' . $err, 502, '', '', 'pool' );
-		}
-		$code = (int) wp_remote_retrieve_response_code( $resp );
-		$body_str = wp_remote_retrieve_body( $resp );
-		if ( 200 !== $code ) {
-			return self::error( 'Python 返回：HTTP ' . $code . ' ' . $body_str, 502, '', '', 'pool' );
-		}
-		$resp = new WP_REST_Response( json_decode( $body_str, true ), 200 );
-		$resp->header( 'Content-Type', 'application/json; charset=utf-8' );
-		return $resp;
-	}
-
-	/**
-	 * GET /pool —— 备用选题池列表。
-	 */
-	public static function handle_pool_list( $request ) {
-		return self::proxy( 'GET', '/api/pool' );
-	}
-
-	/**
-	 * POST /pool —— 人工添加（系统判断 + 优化标题）。
-	 */
-	public static function handle_pool_add( $request ) {
-		$body = $request->get_json_params();
-		if ( ! is_array( $body ) ) {
-			$body = array();
-		}
-		return self::proxy( 'POST', '/api/pool', array(
-			'column' => isset( $body['column'] ) ? sanitize_text_field( $body['column'] ) : '',
-			'topic'  => isset( $body['topic'] ) ? sanitize_text_field( $body['topic'] ) : '',
-		) );
-	}
-
-	/**
-	 * POST /pool/reorder —— 备用选题重新排队。
-	 */
-	public static function handle_pool_reorder( $request ) {
-		$body = $request->get_json_params();
-		$ids  = array();
-		if ( is_array( $body ) && ! empty( $body['ids'] ) && is_array( $body['ids'] ) ) {
-			foreach ( $body['ids'] as $i ) {
-				$ids[] = intval( $i );
-			}
-		}
-		if ( ! $ids ) {
-			return self::error( 'ids 数组必填', 400, '', '', 'pool' );
-		}
-		return self::proxy( 'POST', '/api/pool/reorder', array( 'ids' => $ids ) );
-	}
-
-	/**
-	 * POST /pool/fill —— 本地素材生成备用题入池。
-	 */
-	public static function handle_pool_fill( $request ) {
-		$body = $request->get_json_params();
-		$col  = ( is_array( $body ) && ! empty( $body['column'] ) ) ? sanitize_text_field( $body['column'] ) : '';
-		$n    = ( is_array( $body ) && ! empty( $body['n'] ) ) ? intval( $body['n'] ) : 3;
-		$path = '/api/pool/fill?n=' . max( 1, min( $n, 10 ) ) . ( $col ? '&column=' . $col : '' );
-		return self::proxy( 'POST', $path );
-	}
-
-	/**
-	 * PUT /pool/{id} —— 编辑池中选题。
-	 */
-	public static function handle_pool_edit( $request ) {
-		$body    = $request->get_json_params();
-		$payload = array();
-		if ( is_array( $body ) ) {
-			if ( isset( $body['topic'] ) ) {
-				$payload['topic'] = sanitize_text_field( $body['topic'] );
-			}
-			if ( isset( $body['column'] ) ) {
-				$payload['column'] = sanitize_text_field( $body['column'] );
-			}
-		}
-		return self::proxy( 'PUT', '/api/pool/' . intval( $request['pool_id'] ), $payload );
-	}
-
-	/**
-	 * DELETE /pool/{id} —— 删除池中选题。
-	 */
-	public static function handle_pool_delete( $request ) {
-		return self::proxy( 'DELETE', '/api/pool/' . intval( $request['pool_id'] ) );
-	}
-
-	/**
-	 * POST /pool/clear —— 一键清空备用选题池（软删全部排队，保留已用历史）。
-	 */
-	public static function handle_pool_clear( $request ) {
-		return self::proxy( 'POST', '/api/pool/clear' );
-	}
-
-	/* ---- AI 工具箱端点（本地处理，不走 Python 代理） ---- */
 
 	/**
 	 * POST /toolbox/summary —— AI 生成文章摘要。body: {post_id} 或 {post_ids: [...]}
@@ -531,6 +400,27 @@ class ABP_REST {
 	}
 
 	/**
+	 * POST /toolbox/ai-cover —— AI 生成封面（插件本地生图，逐篇调用）。body: {post_id}。
+	 * 使用设置页「图片 API 配置」的生图服务，生成后自动上传媒体库并设为特色图。
+	 *
+	 * @param WP_REST_Request $request 请求对象。
+	 * @return WP_REST_Response
+	 */
+	public static function handle_toolbox_ai_cover( $request ) {
+		$body = $request->get_json_params();
+		$pid  = ( is_array( $body ) && ! empty( $body['post_id'] ) ) ? (int) $body['post_id'] : 0;
+		if ( ! $pid || ! get_post( $pid ) ) {
+			return self::error( 'post_id 必填且文章存在', 400, '', '', 'toolbox' );
+		}
+		set_time_limit( 0 );
+		$r = ABP_Toolbox::generate_cover( $pid );
+		if ( ! $r['ok'] ) {
+			return self::error( $r['error'], 502, '', '', 'toolbox' );
+		}
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+	}
+
+	/**
 	 * POST /toolbox/cover —— 手动配图：为勾选的文章设置封面图。
 	 * body: {post_ids: [...], image_url} 或 {post_id, image_url}
 	 * image_url 支持 http(s) URL 或 base64 data URI（复用发布层 ABP_Publish::attach_featured_image）。
@@ -592,139 +482,6 @@ class ABP_REST {
 	}
 
 	/**
-	 * POST /toolbox/ai-cover —— AI 配图：为勾选文章创建后端异步生图任务（代理 Python）。
-	 * body: {post_ids: [...]}；返回每篇的 job_id，前端轮询 /toolbox/ai-cover/{job_id}。
-	 *
-	 * @param WP_REST_Request $request 请求对象。
-	 * @return WP_REST_Response
-	 */
-	public static function handle_toolbox_ai_cover( $request ) {
-		$body = $request->get_json_params();
-		if ( ! is_array( $body ) || empty( $body['post_ids'] ) || ! is_array( $body['post_ids'] ) ) {
-			return self::error( 'post_ids 数组必填', 400, '', '', 'toolbox' );
-		}
-		$ids = array();
-		foreach ( $body['post_ids'] as $pid ) {
-			$id = intval( $pid );
-			if ( $id ) {
-				$ids[] = $id;
-			}
-		}
-		if ( ! $ids ) {
-			return self::error( 'post_ids 为空', 400, '', '', 'toolbox' );
-		}
-
-		// 先强制同步一次 WP 配置到后端（生图 Key/Provider 可能刚保存，避免用到旧配置）。
-		self::proxy( 'POST', '/api/sync', null, 20 );
-
-		$jobs = array();
-		foreach ( array_unique( $ids ) as $pid ) {
-			// 正文前 200 字去标签压缩后作为提示词要点（让封面贴合文章内容）。
-			$plain = trim( (string) wp_strip_all_tags( get_post_field( 'post_content', $pid ) ) );
-			$plain = (string) preg_replace( '/\s+/u', ' ', $plain );
-			$resp = self::proxy( 'POST', '/api/toolbox/cover', array(
-				'post_id' => (int) $pid,
-				'title'   => get_the_title( $pid ),
-				'column'  => self::post_column_code( $pid ),
-				'content' => mb_substr( $plain, 0, 200 ),
-			), 15 );
-			$data = $resp->get_data();
-			if ( is_array( $data ) && ! empty( $data['ok'] ) && ! empty( $data['job_id'] ) ) {
-				$jobs[] = array(
-					'post_id' => (int) $pid,
-					'job_id'  => sanitize_text_field( (string) $data['job_id'] ),
-				);
-			} else {
-				$jobs[] = array(
-					'post_id' => (int) $pid,
-					'job_id'  => '',
-					'error'   => is_array( $data ) ? ( isset( $data['error'] ) ? (string) $data['error'] : '后端任务创建失败' ) : '后端任务创建失败',
-				);
-			}
-		}
-		return rest_ensure_response( new WP_REST_Response( array( 'ok' => true, 'jobs' => $jobs ), 200 ) );
-	}
-
-	/**
-	 * GET /toolbox/ai-cover/{job_id} —— 查询 AI 配图任务状态（代理 Python）。
-	 *
-	 * @param WP_REST_Request $request 请求对象。
-	 * @return WP_REST_Response
-	 */
-	public static function handle_toolbox_ai_cover_status( $request ) {
-		$job_id = sanitize_text_field( (string) $request['job_id'] );
-		if ( '' === $job_id ) {
-			return self::error( 'job_id 必填', 400, '', '', 'toolbox' );
-		}
-		return self::proxy( 'GET', '/api/toolbox/cover/' . rawurlencode( $job_id ) );
-	}
-
-	/**
-	 * 文章分类名 → 栏目代码（AI 配图提示词风格用）。
-	 *
-	 * @param int $post_id 文章 ID。
-	 * @return string 栏目代码（stock/tech/reading/book/industry），未知返回空串（通用风格）。
-	 */
-	private static function post_column_code( $post_id ) {
-		$terms = wp_get_post_terms( $post_id, 'category', array( 'fields' => 'names' ) );
-		if ( is_wp_error( $terms ) || empty( $terms ) ) {
-			return '';
-		}
-		$name = implode( ' ', (array) $terms );
-		if ( false !== mb_strpos( $name, 'A股' ) ) {
-			return 'stock';
-		}
-		if ( false !== mb_strpos( $name, 'IT' ) || false !== mb_strpos( $name, '技术' ) ) {
-			return 'tech';
-		}
-		if ( false !== mb_strpos( $name, '书评' ) ) {
-			return 'book';
-		}
-		if ( false !== mb_strpos( $name, '读书' ) || false !== mb_strpos( $name, '国学' ) ) {
-			return 'reading';
-		}
-		if ( false !== mb_strpos( $name, '行业' ) ) {
-			return 'industry';
-		}
-		return '';
-	}
-
-	/**
-	 * POST /pool/{id}/plan —— 指定立即列入计划。
-	 */
-	public static function handle_pool_plan( $request ) {
-		return self::proxy( 'POST', '/api/pool/' . intval( $request['pool_id'] ) . '/plan', null, 120 );
-	}
-
-	/**
-	 * POST /pool/{id}/run —— 备用题立即完成（列入计划并马上生成发布，长超时）。
-	 */
-	public static function handle_pool_run( $request ) {
-		return self::proxy( 'POST', '/api/pool/' . intval( $request['pool_id'] ) . '/run', null, 300 );
-	}
-
-	/**
-	 * POST /tasks/{id}/run —— 立即完成指定任务（生成并发布，耗时 1-3 分钟，长超时）。
-	 */
-	public static function handle_task_run_now( $request ) {
-		return self::proxy( 'POST', '/api/tasks/' . sanitize_text_field( $request['task_id'] ) . '/run', null, 300 );
-	}
-
-	/**
-	 * GET /tasks —— 今日计划任务列表（代理 Python /api/topics/today）。
-	 */
-	public static function handle_tasks_list( $request ) {
-		return self::proxy( 'GET', '/api/topics/today' );
-	}
-
-	/**
-	 * POST /tasks/clear —— 清空今日计划任务（queued/skipped）。
-	 */
-	public static function handle_tasks_clear( $request ) {
-		return self::proxy( 'POST', '/api/tasks/clear' );
-	}
-
-	/**
 	 * GET /settings —— 站点开关与调度参数（供 Python 侧同步，让后台开关真正生效）。
 	 *
 	 * 仅返回非敏感字段；密钥/Token 不在此接口下发（经 /health 只返回 has_key 布尔）。
@@ -749,139 +506,8 @@ class ABP_REST {
 			'daily_limit'         => isset( $s['daily_limit'] ) ? (int) $s['daily_limit'] : 3,
 			'daily_token_limit'   => isset( $s['daily_token_limit'] ) ? (int) $s['daily_token_limit'] : 200000,
 			'publish_window'      => isset( $s['publish_window'] ) ? $s['publish_window'] : '09:00-21:00',
-			'column_ratio'        => isset( $s['column_ratio'] ) ? $s['column_ratio'] : '40:30:30',
 		);
 		return rest_ensure_response( new WP_REST_Response( $body, 200 ) );
-	}
-
-	/**
-	 * Python 伴生服务地址（设置页可配，默认本机 8080）。
-	 *
-	 * @return string
-	 */
-	private static function python_base() {
-		$s    = get_option( 'abp_settings', array() );
-		$base = isset( $s['python_base'] ) ? untrailingslashit( esc_url_raw( $s['python_base'] ) ) : '';
-		return $base ? $base : 'http://127.0.0.1:8080';
-	}
-
-	/**
-	 * GET /topics —— 拉取今日任务 + 选题候选列表。
-	 *
-	 * @param WP_REST_Request $request 请求对象。
-	 * @return WP_REST_Response
-	 */
-	public static function handle_topics_list( $request ) {
-		$resp = wp_remote_get(
-			self::python_base() . '/api/topics/today',
-			array( 'timeout' => 8, 'headers' => array( 'Accept' => 'application/json' ) )
-		);
-		if ( is_wp_error( $resp ) ) {
-			return self::error( 'Python 服务不可达：' . $resp->get_error_message(), 502, '', '', 'topics' );
-		}
-		$code = (int) wp_remote_retrieve_response_code( $resp );
-		$body = json_decode( wp_remote_retrieve_body( $resp ), true );
-		if ( 200 !== $code ) {
-			return self::error( 'Python 服务返回异常：HTTP ' . $code . ' ' . wp_remote_retrieve_body( $resp ), 502, '', '', 'topics' );
-		}
-		$resp = new WP_REST_Response( $body, 200 );
-		$resp->header( 'Content-Type', 'application/json; charset=utf-8' );
-		return $resp;
-	}
-
-	/**
-	 * POST /topics/reorder —— 调整排队顺序（代理 Python）。
-	 *
-	 * @param WP_REST_Request $request 请求对象。
-	 * @return WP_REST_Response
-	 */
-	public static function handle_topic_reorder( $request ) {
-		$body = $request->get_json_params();
-		if ( ! is_array( $body ) || empty( $body['task_ids'] ) || ! is_array( $body['task_ids'] ) ) {
-			return self::error( 'task_ids 数组必填', 400, '', '', 'topics' );
-		}
-		$ids = array();
-		foreach ( $body['task_ids'] as $tid ) {
-			$ids[] = sanitize_text_field( (string) $tid );
-		}
-		$resp = wp_remote_post(
-			self::python_base() . '/api/topics/reorder',
-			array(
-				'timeout' => 8,
-				'headers' => array( 'Content-Type' => 'application/json' ),
-				'body'    => wp_json_encode( array( 'task_ids' => $ids ) ),
-			)
-		);
-		if ( is_wp_error( $resp ) ) {
-			return self::error( 'Python 服务不可达：' . $resp->get_error_message(), 502, '', '', 'topics' );
-		}
-		$code = (int) wp_remote_retrieve_response_code( $resp );
-		if ( 200 !== $code ) {
-			return self::error( 'Python 返回：HTTP ' . $code . ' ' . wp_remote_retrieve_body( $resp ), 502, '', '', 'topics' );
-		}
-		$resp = new WP_REST_Response( json_decode( wp_remote_retrieve_body( $resp ), true ), 200 );
-		$resp->header( 'Content-Type', 'application/json; charset=utf-8' );
-		return $resp;
-	}
-
-	/**
-	 * POST /topics/{task_id} —— 人工指定/调整选题（body: topic 或 index）。
-	 *
-	 * @param WP_REST_Request $request 请求对象。
-	 * @return WP_REST_Response
-	 */
-	public static function handle_topic_pick( $request ) {
-		$task_id = sanitize_text_field( $request['task_id'] );
-		$body    = $request->get_json_params();
-		if ( ! is_array( $body ) ) {
-			$body = array();
-		}
-		$payload = array(
-			'topic' => isset( $body['topic'] ) ? sanitize_text_field( $body['topic'] ) : '',
-			'index' => isset( $body['index'] ) ? intval( $body['index'] ) : null,
-		);
-		$resp = wp_remote_post(
-			self::python_base() . '/api/topics/' . rawurlencode( $task_id ),
-			array(
-				'timeout' => 8,
-				'headers' => array( 'Content-Type' => 'application/json' ),
-				'body'    => wp_json_encode( $payload ),
-			)
-		);
-		if ( is_wp_error( $resp ) ) {
-			return self::error( 'Python 服务不可达：' . $resp->get_error_message(), 502, '', '', 'topics' );
-		}
-		$code = (int) wp_remote_retrieve_response_code( $resp );
-		if ( 200 !== $code ) {
-			return self::error( 'Python 返回：HTTP ' . $code . ' ' . wp_remote_retrieve_body( $resp ), 502, '', '', 'topics' );
-		}
-		$resp = new WP_REST_Response( json_decode( wp_remote_retrieve_body( $resp ), true ), 200 );
-		$resp->header( 'Content-Type', 'application/json; charset=utf-8' );
-		return $resp;
-	}
-
-	/**
-	 * DELETE /topics/{task_id} —— 删除任务（仅 queued/skipped 可删）。
-	 *
-	 * @param WP_REST_Request $request 请求对象。
-	 * @return WP_REST_Response
-	 */
-	public static function handle_topic_delete( $request ) {
-		$task_id = sanitize_text_field( $request['task_id'] );
-		$resp    = wp_remote_request(
-			self::python_base() . '/api/topics/' . rawurlencode( $task_id ),
-			array( 'method' => 'DELETE', 'timeout' => 8 )
-		);
-		if ( is_wp_error( $resp ) ) {
-			return self::error( 'Python 服务不可达：' . $resp->get_error_message(), 502, '', '', 'topics' );
-		}
-		$code = (int) wp_remote_retrieve_response_code( $resp );
-		if ( 200 !== $code ) {
-			return self::error( 'Python 返回：HTTP ' . $code . ' ' . wp_remote_retrieve_body( $resp ), 502, '', '', 'topics' );
-		}
-		$resp = new WP_REST_Response( json_decode( wp_remote_retrieve_body( $resp ), true ), 200 );
-		$resp->header( 'Content-Type', 'application/json; charset=utf-8' );
-		return $resp;
 	}
 
 	/**
@@ -1266,5 +892,263 @@ class ABP_REST {
 				$status
 			)
 		);
+	}
+
+	/* ================= 备用选题池（v1.5.0 本地库） ================= */
+
+	/**
+	 * GET /pool —— 池子列表（排队 + 最近已用）。
+	 */
+	public static function handle_pool_list() {
+		return rest_ensure_response( new WP_REST_Response( ABP_Queue::pool_list(), 200 ) );
+	}
+
+	/**
+	 * POST /pool —— 加入池子。body: {column, topic, source?}。
+	 */
+	public static function handle_pool_add( $request ) {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = array();
+		}
+		$r = ABP_Queue::pool_add(
+			isset( $body['column'] ) ? $body['column'] : '',
+			isset( $body['topic'] ) ? $body['topic'] : '',
+			isset( $body['source'] ) ? $body['source'] : 'manual'
+		);
+		if ( ! $r['ok'] ) {
+			return self::error( $r['error'], 400, '', '', 'pool' );
+		}
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+	}
+
+	/**
+	 * PUT /pool/{id} —— 编辑池子项。body: {topic, column?}。
+	 */
+	public static function handle_pool_edit( $request ) {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = array();
+		}
+		$r = ABP_Queue::pool_update(
+			(int) $request['pool_id'],
+			isset( $body['topic'] ) ? $body['topic'] : '',
+			isset( $body['column'] ) ? $body['column'] : ''
+		);
+		if ( ! $r['ok'] ) {
+			return self::error( $r['error'], 400, '', '', 'pool' );
+		}
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+	}
+
+	/**
+	 * DELETE /pool/{id} —— 删除池子项（仅排队）。
+	 */
+	public static function handle_pool_delete( $request ) {
+		$r = ABP_Queue::pool_delete( (int) $request['pool_id'] );
+		if ( ! $r['ok'] ) {
+			return self::error( $r['error'], 404, '', '', 'pool' );
+		}
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+	}
+
+	/**
+	 * POST /pool/reorder —— 重排。body: {ids: [...]}。
+	 */
+	public static function handle_pool_reorder( $request ) {
+		$body = $request->get_json_params();
+		$ids  = ( is_array( $body ) && isset( $body['ids'] ) && is_array( $body['ids'] ) ) ? $body['ids'] : array();
+		$r = ABP_Queue::pool_reorder( $ids );
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+	}
+
+	/**
+	 * POST /pool/clear —— 一键清空（保留已用历史）。
+	 */
+	public static function handle_pool_clear() {
+		return rest_ensure_response( new WP_REST_Response( ABP_Queue::pool_clear(), 200 ) );
+	}
+
+	/**
+	 * POST /pool/fill —— 智能填充（插件本地素材库）。body: {column?, n?}。
+	 */
+	public static function handle_pool_fill( $request ) {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = array();
+		}
+		$r = ABP_Queue::pool_fill(
+			isset( $body['column'] ) ? $body['column'] : '',
+			isset( $body['n'] ) ? (int) $body['n'] : null
+		);
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+	}
+
+	/**
+	 * 生成今日任务 ID：YYYYMMDD-column-NNN（当日该栏目序号）。
+	 *
+	 * @param string $column 栏目码。
+	 * @return string
+	 */
+	private static function next_task_id( $column ) {
+		$date = gmdate( 'Ymd', current_time( 'timestamp' ) + (int) ( get_option( 'gmt_offset' ) * HOUR_IN_SECONDS ) );
+		$like = $wpdb_prefix_like = $date . '-' . $column . '-%';
+		global $wpdb;
+		$t = $wpdb->prefix . ABP_Queue::TASKS;
+		$n = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t} WHERE task_id LIKE %s", $like ) );
+		return $date . '-' . $column . '-' . sprintf( '%03d', $n + 1 );
+	}
+
+	/**
+	 * POST /pool/{id}/plan —— 列入今日计划（池子项 → 今日任务，标已用）。
+	 */
+	public static function handle_pool_plan( $request ) {
+		global $wpdb;
+		$t = $wpdb->prefix . ABP_Queue::POOL;
+		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$t} WHERE id=%d", (int) $request['pool_id'] ), ARRAY_A );
+		if ( ! $row ) {
+			return self::error( '池子条目不存在', 404, '', '', 'pool' );
+		}
+		if ( 'queued' !== $row['status'] ) {
+			return self::error( '该条目已用，不可重复列入', 400, '', '', 'pool' );
+		}
+		$task_id = self::next_task_id( $row['column_name'] );
+		$r = ABP_Queue::task_create( $task_id, $row['column_name'], $row['topic'] );
+		if ( ! $r['ok'] ) {
+			return self::error( $r['error'], 400, '', '', 'pool' );
+		}
+		ABP_Queue::pool_mark_used( (int) $row['id'] );
+		return rest_ensure_response( new WP_REST_Response( array( 'ok' => true, 'task' => $r['task'] ), 200 ) );
+	}
+
+	/**
+	 * POST /pool/{id}/run —— 立即完成（列入计划 + 请求立即执行）。
+	 */
+	public static function handle_pool_run( $request ) {
+		$plan = self::handle_pool_plan( $request );
+		$data = $plan->get_data();
+		if ( empty( $data['ok'] ) || empty( $data['task']['task_id'] ) ) {
+			return $plan;
+		}
+		return self::handle_task_run_now( $data['task']['task_id'] );
+	}
+
+	/* ================= 任务队列（v1.5.0 本地库） ================= */
+
+	/**
+	 * GET /tasks —— 今日任务列表（?date=YYYY-MM-DD 可查他日）。
+	 */
+	public static function handle_tasks_list( $request ) {
+		$date = isset( $request['date'] ) ? sanitize_text_field( (string) $request['date'] ) : null;
+		return rest_ensure_response( new WP_REST_Response( ABP_Queue::task_list_by_date( $date ), 200 ) );
+	}
+
+	/**
+	 * GET /tasks/{task_id} —— 查单个任务（前端轮询 / 服务查状态）。
+	 */
+	public static function handle_task_get( $request ) {
+		$row = ABP_Queue::task_get( $request['task_id'] );
+		if ( ! $row ) {
+			return self::error( '任务不存在', 404, $request['task_id'], '', 'tasks' );
+		}
+		return rest_ensure_response( new WP_REST_Response( array( 'ok' => true, 'task' => $row ), 200 ) );
+	}
+
+	/**
+	 * POST /tasks —— 服务创建任务（幂等）。body: {task_id?, column, topic?, candidates?, publish_at?, pool_id?}。
+	 */
+	public static function handle_tasks_create( $request ) {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = array();
+		}
+		$column = isset( $body['column'] ) ? $body['column'] : '';
+		if ( ! in_array( (string) $column, array( 'stock', 'tech', 'reading', 'book', 'industry' ), true ) ) {
+			return self::error( 'column 必填（stock/tech/reading/book/industry）', 400, '', '', 'tasks' );
+		}
+		$task_id = isset( $body['task_id'] ) ? $body['task_id'] : self::next_task_id( $column );
+		$r = ABP_Queue::task_create(
+			$task_id,
+			$column,
+			isset( $body['topic'] ) ? $body['topic'] : '',
+			isset( $body['candidates'] ) && is_array( $body['candidates'] ) ? $body['candidates'] : array(),
+			isset( $body['publish_at'] ) ? $body['publish_at'] : null
+		);
+		if ( ! $r['ok'] ) {
+			return self::error( $r['error'], 400, '', '', 'tasks' );
+		}
+		if ( ! empty( $body['pool_id'] ) ) {
+			ABP_Queue::pool_mark_used( (int) $body['pool_id'] );
+		}
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+	}
+
+	/**
+	 * POST /tasks/clear —— 清空（删 queued/skipped）。
+	 */
+	public static function handle_tasks_clear() {
+		return rest_ensure_response( new WP_REST_Response( ABP_Queue::task_clear(), 200 ) );
+	}
+
+	/**
+	 * DELETE /tasks/{task_id} —— 删除任务（仅 queued/skipped）。
+	 */
+	public static function handle_task_delete( $request ) {
+		$r = ABP_Queue::task_delete( $request['task_id'] );
+		if ( ! $r['ok'] ) {
+			return self::error( $r['error'], 400, $request['task_id'], '', 'tasks' );
+		}
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+	}
+
+	/**
+	 * POST /tasks/{task_id}/run —— 请求立即执行（run_now=1，服务拉取时优先执行）。
+	 */
+	public static function handle_task_run_now( $request ) {
+		$task_id = ( $request instanceof WP_REST_Request ) ? (string) $request['task_id'] : (string) $request;
+		$r = ABP_Queue::task_request_run( $task_id );
+		if ( ! $r['ok'] ) {
+			return self::error( $r['error'], 400, $task_id, '', 'tasks' );
+		}
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+	}
+
+	/**
+	 * POST /tasks/{task_id}/status —— 服务回报状态。body: {status, post_id?, error?}。
+	 */
+	public static function handle_task_status( $request ) {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = array();
+		}
+		$r = ABP_Queue::task_update_status(
+			$request['task_id'],
+			isset( $body['status'] ) ? $body['status'] : '',
+			isset( $body['post_id'] ) ? $body['post_id'] : null,
+			isset( $body['error'] ) ? $body['error'] : ''
+		);
+		if ( ! $r['ok'] ) {
+			return self::error( $r['error'], 400, $request['task_id'], '', 'tasks' );
+		}
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+	}
+
+	/**
+	 * POST /tasks/{task_id}/pick —— 指定候选 / 指定选题。body: {topic?} 或 {index?}。
+	 */
+	public static function handle_task_pick( $request ) {
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) ) {
+			$body = array();
+		}
+		$r = ABP_Queue::task_pick(
+			$request['task_id'],
+			isset( $body['topic'] ) ? $body['topic'] : null,
+			isset( $body['index'] ) ? (int) $body['index'] : null
+		);
+		if ( ! $r['ok'] ) {
+			return self::error( $r['error'], 400, $request['task_id'], '', 'tasks' );
+		}
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
 	}
 }

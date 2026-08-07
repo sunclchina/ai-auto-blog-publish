@@ -7,7 +7,7 @@
  *   1. 运行状态卡（模型探测结果展示：调 abp_get_models，显示当前生效配置来源）
  *   2. 开关列表（AI 写文总开关 / 三栏目独立开关 / 配图 / 发布）
  *   3. 配置表单（settings_fields + submit：篇数、Token 额度、时段、比例、模型映射、图片 API）
- *   4. API Token（生成/显示/复制，Python 侧 Bearer 认证用）
+ *   4. API Token（生成/显示/复制，Bearer 认证用）
  *   5. 任务日志（wp_abp_log 最近 50 条，AJAX 刷新）
  *
  * @package AI_Auto_Blog_Publish
@@ -42,7 +42,6 @@ class ABP_Settings {
 			'daily_limit'           => 3,      // 每日发文篇数 1-10。
 			'daily_token_limit'     => 200000, // 每日 Token 额度。
 			'publish_window'        => '09:00-21:00', // 模拟人工时段。
-			'column_ratio'          => '40:30:30',    // 复盘/技术/国学+书评 比例。
 			'deepseek_api_key'      => '',
 			'models'                => array(
 				'stock'   => 'deepseek-chat',
@@ -58,12 +57,25 @@ class ABP_Settings {
 			),
 			'api_token'             => '',
 			'max_tags'              => 10,
-			'python_base'           => '',   // Python 伴生服务地址，空=默认 http://127.0.0.1:8080
 			// GitHub 自动升级（v1.2.0）。
 			'auto_update_enabled'   => 'on',
 			'github_owner'          => 'sunclchina',
 			'github_repo'           => 'ai-auto-blog-publish',
 			'github_token'          => '',    // 可选：GitHub PAT，防 API 限流。
+			'rss_urls'              => array(
+				// 默认 RSS 源（已实测可用，2026-08-07）：WP 生态 / 建站 / 服务器运维 / 科技。
+				'https://wordpress.org/news/feed/',
+				'https://wptavern.com/feed',
+				'https://www.wpbeginner.com/feed/',
+				'https://www.ruanyifeng.com/blog/atom.xml',
+				'https://www.digitalocean.com/community/tutorials/feed',
+				'https://blog.cloudflare.com/rss/',
+				'https://serversforhackers.com/feed',
+				'https://www.lxlinux.net/feed',
+				'https://sspai.com/feed',
+			),
+			'tavily_api_key'        => '',        // Tavily 搜索 key（行业综述栏目用）
+			'book_catalog_url'      => '',   // 站点图书目录页地址（书评栏目选题源），空=自动探测常见路径
 		);
 	}
 
@@ -93,12 +105,12 @@ class ABP_Settings {
 		add_action( 'wp_ajax_abp_log_refresh', array( __CLASS__, 'ajax_log_refresh' ) );
 		// 日志清空。
 		add_action( 'wp_ajax_abp_log_clear', array( __CLASS__, 'ajax_log_clear' ) );
+		// GitHub 自动升级：检查更新。
+		add_action( 'wp_ajax_abp_check_update', array( __CLASS__, 'ajax_check_update' ) );
 		// AI 工具箱文章列表。
 		add_action( 'wp_ajax_abp_toolbox_posts', array( __CLASS__, 'ajax_toolbox_posts' ) );
 		// 备选题池栏目：现有文章分类列表。
 		add_action( 'wp_ajax_abp_pool_categories', array( __CLASS__, 'ajax_pool_categories' ) );
-		// GitHub 自动升级：检查更新。
-		add_action( 'wp_ajax_abp_check_update', array( __CLASS__, 'ajax_check_update' ) );
 	}
 
 	/**
@@ -199,28 +211,21 @@ class ABP_Settings {
 		}
 		$clean['publish_window'] = $window;
 
-		// 栏目比例：三段数字比例（宽松，仅格式校验）。
-		$ratio = isset( $input['column_ratio'] ) ? sanitize_text_field( (string) $input['column_ratio'] ) : '40:30:30';
-		if ( ! preg_match( '/^\d{1,3}:\d{1,3}:\d{1,3}$/', $ratio ) ) {
-			$ratio = '40:30:30';
-		}
-		$clean['column_ratio'] = $ratio;
-
 		// DeepSeek Key（provider=self 用）：留空表示沿用旧值，绝不强制覆盖。
 		$clean['deepseek_api_key'] = isset( $old['deepseek_api_key'] ) ? $old['deepseek_api_key'] : '';
 		if ( isset( $input['deepseek_api_key'] ) && '' !== trim( (string) $input['deepseek_api_key'] ) ) {
 			$clean['deepseek_api_key'] = sanitize_text_field( (string) $input['deepseek_api_key'] );
 		}
 
-		// 模型映射表（DeepSeek 单 key 多模型分发）。
-		$clean['models'] = self::defaults()['models'];
-		if ( isset( $input['models'] ) && is_array( $input['models'] ) ) {
-			foreach ( array( 'stock', 'tech', 'reading', 'image' ) as $col ) {
-				if ( isset( $input['models'][ $col ] ) ) {
-					$clean['models'][ $col ] = sanitize_text_field( (string) $input['models'][ $col ] );
-				}
-			}
-		}
+		// 统一 AI 模型（A股/IT/国学书评共用；v1.5.7 起不再区分栏目模型）。
+		$clean['model'] = isset( $input['model'] ) && '' !== trim( (string) $input['model'] ) ? sanitize_text_field( (string) $input['model'] ) : 'deepseek-chat';
+		// 兼容旧结构：models 三栏目同步为统一模型，image 废弃置空。
+		$clean['models'] = array(
+			'stock'   => $clean['model'],
+			'tech'    => $clean['model'],
+			'reading' => $clean['model'],
+			'image'   => '',
+		);
 
 		// 图片 API 配置（key 留空沿用旧值）。
 		$old_img = isset( $old['image_api'] ) && is_array( $old['image_api'] ) ? $old['image_api'] : array();
@@ -237,8 +242,22 @@ class ABP_Settings {
 		// 标签上限。
 		$clean['max_tags'] = isset( $input['max_tags'] ) ? max( 1, min( 30, (int) $input['max_tags'] ) ) : 10;
 
-		// Python 伴生服务地址（智能选题中心代理用）。
-		$clean['python_base'] = isset( $input['python_base'] ) ? untrailingslashit( esc_url_raw( (string) $input['python_base'] ) ) : '';
+		// IT 动态选题 RSS 源（每行一个 URL）。
+		$clean['rss_urls'] = array();
+		if ( isset( $input['rss_urls'] ) && is_string( $input['rss_urls'] ) ) {
+			foreach ( preg_split( '/[\r\n]+/', $input['rss_urls'] ) as $line ) {
+				$line = trim( $line );
+				if ( '' !== $line && filter_var( $line, FILTER_VALIDATE_URL ) ) {
+					$clean['rss_urls'][] = esc_url_raw( $line );
+				}
+			}
+		}
+
+		// Tavily 搜索 key（行业综述栏目；留空=沿用旧值，绝不覆盖）。
+		$clean['tavily_api_key'] = isset( $old['tavily_api_key'] ) ? $old['tavily_api_key'] : '';
+		if ( isset( $input['tavily_api_key'] ) && '' !== trim( (string) $input['tavily_api_key'] ) ) {
+			$clean['tavily_api_key'] = sanitize_text_field( (string) $input['tavily_api_key'] );
+		}
 
 		// GitHub 自动升级配置（owner/repo 白名单字符；token 留空沿用旧值）。
 		$clean['auto_update_enabled'] = ( isset( $input['auto_update_enabled'] ) && 'on' === $input['auto_update_enabled'] ) ? 'on' : 'off';
@@ -251,7 +270,28 @@ class ABP_Settings {
 			$clean['github_token'] = sanitize_text_field( (string) $input['github_token'] );
 		}
 
+		// 站点图书目录页地址（书评选题源；留空自动探测）。
+		$clean['book_catalog_url'] = isset( $input['book_catalog_url'] ) ? untrailingslashit( esc_url_raw( (string) $input['book_catalog_url'] ) ) : '';
+
+
 		return $clean;
+	}
+
+	/**
+	 * GitHub 自动升级：手动检查更新（AJAX）。
+	 *
+	 * @return void
+	 */
+	public static function ajax_check_update() {
+		check_ajax_referer( 'abp_log_refresh' );
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( '权限不足' );
+		}
+		$r = ABP_Updater::force_check();
+		if ( empty( $r['ok'] ) ) {
+			wp_send_json_error( isset( $r['error'] ) ? $r['error'] : '检查失败' );
+		}
+		wp_send_json_success( $r );
 	}
 
 	/**
@@ -362,21 +402,6 @@ class ABP_Settings {
 	}
 
 	/**
-	 * GitHub 自动升级：手动检查更新（AJAX）。
-	 *
-	 * @return void
-	 */
-	public static function ajax_check_update() {
-		check_ajax_referer( 'abp_log_refresh' );
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_send_json_error( '权限不足' );
-		}
-		$r = ABP_Updater::force_check();
-		if ( empty( $r['ok'] ) ) {
-			wp_send_json_error( isset( $r['error'] ) ? $r['error'] : '检查失败' );
-		}
-		wp_send_json_success( $r );
-	}
 
 	/**
 	 * 渲染页面。
@@ -395,7 +420,7 @@ class ABP_Settings {
 			<h1>AI 自动博客 <span class="abp-version">v<?php echo esc_html( ABP_VERSION ); ?></span></h1>
 
 			<?php if ( 'token_generated' === $msg ) : ?>
-				<div class="notice notice-success is-dismissible"><p>新 API Token 已生成，请复制保存（Python 侧 wp_rest.py 同步更新）。</p></div>
+				<div class="notice notice-success is-dismissible"><p>新 API Token 已生成，请复制保存。</p></div>
 			<?php endif; ?>
 
 			<div class="abp-grid">
@@ -409,16 +434,16 @@ class ABP_Settings {
 						<table class="form-table" role="presentation">
 							<tr>
 								<th scope="row">AI 写文总开关</th>
-								<td><?php self::render_switch( 'ai_enabled', $settings, '关闭后 Python 侧不生成任何文章' ); ?></td>
+								<td><?php self::render_switch( 'ai_enabled', $settings, '关闭后不生成文章' ); ?></td>
 							</tr>
 							<tr>
 								<th scope="row">栏目开关</th>
 								<td>
-									<?php self::render_switch( 'column_stock_enabled', $settings, 'A股每日复盘（仅交易日）' ); ?>
-									<?php self::render_switch( 'column_tech_enabled', $settings, 'IT技术笔记' ); ?>
-									<?php self::render_switch( 'column_reading_enabled', $settings, '读书与国学' ); ?>
-									<?php self::render_switch( 'column_book_enabled', $settings, '书评（书目专评）' ); ?>
-									<?php self::render_switch( 'column_industry_enabled', $settings, '行业综述（A股热门行业/概念）' ); ?>
+									<?php self::render_switch( 'column_stock_enabled', $settings, '复盘' ); ?>
+									<?php self::render_switch( 'column_tech_enabled', $settings, 'IT技术' ); ?>
+									<?php self::render_switch( 'column_reading_enabled', $settings, '国学' ); ?>
+									<?php self::render_switch( 'column_book_enabled', $settings, '书评' ); ?>
+									<?php self::render_switch( 'column_industry_enabled', $settings, '行业分析' ); ?>
 								</td>
 							</tr>
 							<tr>
@@ -456,51 +481,37 @@ class ABP_Settings {
 								</td>
 							</tr>
 							<tr>
-								<th scope="row"><label for="abp_python_base">Python 服务地址</label></th>
-								<td>
-									<input type="url" id="abp_python_base" name="abp_settings[python_base]" value="<?php echo esc_attr( $settings['python_base'] ); ?>" placeholder="http://127.0.0.1:8080" class="regular-text" /> <span class="description">智能选题中心代理地址，留空=本机 8080</span>
-								</td>
-							</tr>
-							<tr>
-								<th scope="row"><label for="abp_ratio">栏目比例</label></th>
-								<td>
-									<input type="text" id="abp_ratio" name="abp_settings[column_ratio]" value="<?php echo esc_attr( $settings['column_ratio'] ); ?>" class="small-text" /> <span class="description">格式 复盘:技术:国学+书评（如 40:30:30）</span>
-								</td>
-							</tr>
-							<tr>
 								<th scope="row"><label for="abp_ds_key">DeepSeek API Key</label></th>
 								<td>
 									<input type="password" id="abp_ds_key" name="abp_settings[deepseek_api_key]" value="" class="regular-text" autocomplete="new-password" placeholder="留空保持不变" />
-									<span class="description">当前：<?php echo esc_html( ABP_Models::mask_key( $settings['deepseek_api_key'] ) ?: '未配置（将自动探测青简主题 qy_ai_api_key）' ); ?></span>
+									<?php $probe_model = abp_get_models(); ?>
+									<span class="description">当前：<?php echo esc_html( ! empty( $probe_model['deepseek_api_key'] ) ? '有可用模型' : '无可用模型' ); ?></span>
 								</td>
 							</tr>
 							<tr>
-								<th scope="row">模型映射表<br /><small>DeepSeek 单 key 多模型</small></th>
+								<th scope="row"><label for="abp_model">AI 模型</label></th>
 								<td>
-									<?php
-									$model_labels = array(
-										'stock'   => 'A股复盘模型',
-										'tech'    => 'IT技术模型',
-										'reading' => '国学书评模型',
-										'image'   => '生图模型',
-									);
-									foreach ( $model_labels as $col => $label ) :
-										?>
-										<p>
-											<label for="abp_model_<?php echo esc_attr( $col ); ?>"><?php echo esc_html( $label ); ?>：</label>
-											<input type="text" id="abp_model_<?php echo esc_attr( $col ); ?>" name="abp_settings[models][<?php echo esc_attr( $col ); ?>]" value="<?php echo esc_attr( $settings['models'][ $col ] ); ?>" class="regular-text" />
-										</p>
-									<?php endforeach; ?>
-									<span class="description">image 留空表示未配置生图（纯文字发布）</span>
+									<input type="text" id="abp_model" name="abp_settings[model]" value="<?php echo esc_attr( isset( $settings['model'] ) ? $settings['model'] : 'deepseek-chat' ); ?>" class="regular-text" placeholder="deepseek-chat" />
 								</td>
 							</tr>
 							<tr>
-								<th scope="row">图片 API 配置<br /><small>（Python 侧生图接口）</small></th>
+								<th scope="row">图片 API 配置<br /><small>（生图服务连接，AI 配图用）</small></th>
 								<td>
 									<p><label>Provider：</label> <input type="text" name="abp_settings[image_api][provider]" value="<?php echo esc_attr( $settings['image_api']['provider'] ); ?>" class="regular-text" placeholder="openai（兼容端点）/ dashscope（阿里百炼万相）" /></p>
-									<p><label>API Key：</label> <input type="password" name="abp_settings[image_api][key]" value="" class="regular-text" autocomplete="new-password" placeholder="留空保持不变" /></p>
+									<p><label>API Key：</label> <input type="password" name="abp_settings[image_api][key]" value="" class="regular-text" autocomplete="new-password" placeholder="留空保持不变" /> <span class="description">当前：<?php echo esc_html( ! empty( $settings['image_api']['key'] ) ? '已配置' : '未配置' ); ?></span></p>
 									<p><label>Endpoint：</label> <input type="url" name="abp_settings[image_api][endpoint]" value="<?php echo esc_attr( $settings['image_api']['endpoint'] ); ?>" class="regular-text" placeholder="https://..." /></p>
 									<p><label>Model：</label> <input type="text" name="abp_settings[image_api][model]" value="<?php echo esc_attr( $settings['image_api']['model'] ); ?>" class="regular-text" placeholder="如 dall-e-3" /></p>
+								</td>
+							</tr>
+							<tr>
+								<th scope="row">自动升级<br /><small>GitHub Release</small></th>
+								<td>
+									<p><?php self::render_switch( 'auto_update_enabled', $settings, '开启后定期检查 GitHub 最新版本，后台「插件」页出现标准更新提示' ); ?></p>
+									<p>
+										当前版本 v<?php echo esc_html( ABP_VERSION ); ?>
+										<button type="button" class="button button-small" id="abp-check-update">检查更新</button>
+										<span id="abp-update-status" class="description"></span>
+									</p>
 								</td>
 							</tr>
 							<tr>
@@ -508,23 +519,24 @@ class ABP_Settings {
 								<td><input type="number" id="abp_max_tags" name="abp_settings[max_tags]" min="1" max="30" value="<?php echo esc_attr( $settings['max_tags'] ); ?>" class="small-text" /></td>
 							</tr>
 							<tr>
-								<th scope="row">自动升级<br /><small>GitHub Release</small></th>
+								<th scope="row"><label for="abp_book_catalog_url">站点图书目录</label></th>
 								<td>
-									<p><?php self::render_switch( 'auto_update_enabled', $settings, '开启后定期检查 GitHub 最新版本，后台「插件」页出现标准更新提示' ); ?></p>
-									<p>
-										<label for="abp_gh_owner">GitHub 仓库：</label>
-										<input type="text" id="abp_gh_owner" name="abp_settings[github_owner]" value="<?php echo esc_attr( $settings['github_owner'] ); ?>" class="small-text" placeholder="sunclchina" style="width:110px" /> /
-										<input type="text" id="abp_gh_repo" name="abp_settings[github_repo]" value="<?php echo esc_attr( $settings['github_repo'] ); ?>" class="regular-text" placeholder="ai-auto-blog-publish" style="width:220px" />
-										<span class="description">发布流程：GitHub 建 Release 打 tag（如 v1.2.0）并上传 <code>ai-auto-blog-publish-v1.2.0.zip</code></span>
-									</p>
-									<p>
-										<label for="abp_gh_token">GitHub Token（可选）：</label>
-										<input type="password" id="abp_gh_token" name="abp_settings[github_token]" value="" class="regular-text" autocomplete="new-password" placeholder="留空保持不变（未认证限 60 次/小时）" />
-									</p>
-									<p>
-										当前版本 v<?php echo esc_html( ABP_VERSION ); ?>
-										<button type="button" class="button button-small" id="abp-check-update">检查更新</button>
-										<span id="abp-update-status" class="description"></span>
+									<input type="url" id="abp_book_catalog_url" name="abp_settings[book_catalog_url]" value="<?php echo esc_attr( ( isset( $settings['book_catalog_url'] ) ? $settings['book_catalog_url'] : '' ) ); ?>" placeholder="https://你的站点/藏书馆书目" class="regular-text" />
+								</td>
+							</tr>
+							<tr>
+								<th scope="row"><label for="abp_rss_urls">IT 动态 RSS 源</label></th>
+								<td>
+									<textarea id="abp_rss_urls" name="abp_settings[rss_urls]" rows="3" class="large-text code" placeholder="https://example.com/feed/&#10;https://another.com/rss"><?php echo esc_textarea( is_array( ( isset( $settings['rss_urls'] ) ? $settings['rss_urls'] : array() ) ) ? implode( "\n", ( isset( $settings['rss_urls'] ) ? $settings['rss_urls'] : array() ) ) : '' ); ?></textarea>
+									<span class="description">IT 技术笔记栏目的动态选题源（RSS/Atom，每行一个）；留空=仅用内置高频问题池</span>
+								</td>
+							</tr>
+							<tr>
+								<th scope="row"><label for="abp_tavily_key">Tavily API Key</label></th>
+								<td>
+									<input type="password" id="abp_tavily_key" name="abp_settings[tavily_api_key]" value="" class="regular-text" autocomplete="off" /> <span class="description">当前：<?php echo esc_html( ! empty( ( isset( $settings['tavily_api_key'] ) ? $settings['tavily_api_key'] : '' ) ) ? '已配置' : '未配置' ); ?></span>
+								</td>
+							</tr>
 									</p>
 								</td>
 							</tr>
@@ -538,7 +550,7 @@ class ABP_Settings {
 					<!-- ④ API Token -->
 					<div class="abp-card">
 						<h2>API Token（REST 认证）</h2>
-						<p class="description">Python 侧以 <code>Authorization: Bearer &lt;token&gt;</code> 调用本插件 REST 接口。</p>
+						<p class="description">生成引擎以 <code>Authorization: Bearer &lt;token&gt;</code> 调用本插件 REST 接口。</p>
 						<p>
 							<input type="text" id="abp-token" class="regular-text" readonly value="<?php echo esc_attr( $settings['api_token'] ?: '（尚未生成）' ); ?>" />
 						</p>
@@ -550,7 +562,7 @@ class ABP_Settings {
 								<button type="submit" class="button button-secondary">重新生成</button>
 							</form>
 						</div>
-						<p class="description">⚠️ 重新生成后旧 Token 立即失效，请同步更新 Python 侧配置。</p>
+						<p class="description">⚠️ 重新生成后旧 Token 立即失效，请同步更新生成引擎配置。</p>
 					</div>
 
 					<!-- 模型探测结果 -->
@@ -560,27 +572,26 @@ class ABP_Settings {
 							<tbody>
 								<tr><th>来源 Provider</th><td><?php echo esc_html( self::provider_label( $summary['provider'] ) ); ?></td></tr>
 								<tr><th>来源标识</th><td><?php echo esc_html( $summary['source'] ?: '—' ); ?></td></tr>
-								<tr><th>API Key</th><td><?php echo $summary['has_key'] ? '<span class="abp-badge ok">已配置</span> ' . esc_html( $summary['key'] ) : '<span class="abp-badge warn">未配置（Python 侧将拦截任务）</span>'; ?></td></tr>
+								<tr><th>API Key</th><td><?php echo $summary['has_key'] ? '<span class="abp-badge ok">已配置</span> ' . esc_html( $summary['key'] ) : '<span class="abp-badge warn">未配置（任务将无法生成）</span>'; ?></td></tr>
 								<tr><th>复盘模型</th><td><?php echo esc_html( $summary['models']['stock'] ); ?></td></tr>
 								<tr><th>技术模型</th><td><?php echo esc_html( $summary['models']['tech'] ); ?></td></tr>
 								<tr><th>国学模型</th><td><?php echo esc_html( $summary['models']['reading'] ); ?></td></tr>
-								<tr><th>生图模型</th><td><?php echo esc_html( $summary['models']['image'] ?: '未配置' ); ?></td></tr>
 								<tr><th>图片 API</th><td><?php echo esc_html( ( $summary['image_api']['provider'] ? $summary['image_api']['provider'] . ' / ' : '' ) . ( $summary['image_api']['model'] ?: '未配置' ) ); ?></td></tr>
 							</tbody>
 						</table>
-						<p class="description">探测顺序：青简主题（qy_ai_api_key）→ 插件自身配置。</p>
+						<p class="description">探测顺序：青简主题 → 插件自身配置。</p>
 					</div>
 				</div>
 			</div>
 
-			<!-- ④.5 备用选题池（唯一操作台：备用题按计划排队，可编辑/删除/排序/列入计划/立即完成） -->
+			<!-- ④.5 备用选题池（数据存 WP 数据库，插件本地管理，v1.5.0） -->
 			<div class="abp-card" id="abp-pool-card">
 				<h2>备用选题池（按计划排队，自动供每日任务取用）
 					<button type="button" class="button button-small" id="abp-refresh-pool">刷新</button>
 					<button type="button" class="button button-small" id="abp-pool-fill">智能填充</button>
 					<button type="button" class="button button-small" id="abp-pool-clear" style="color:#b32d2e;">一键清空</button>
 				</h2>
-				<p class="description">系统自动积累备用题目（预选题多余候选 / 本地素材生成）；可编辑、删除、↑↓ 调整排队顺序。每日任务按此顺序取用，取完自动标记已用。</p>
+				<p class="description">备用题目按序排队，每日任务自动取用；内置素材库一键智能填充（诗词/IT 问题/书单/行业概念），预选题多余候选由生成引擎自动补充入池。可编辑、删除、↑↓ 调整顺序、列入今日计划、立即完成。</p>
 				<div id="abp-pool-container"><p class="description">点击「刷新」加载备用选题池…</p></div>
 				<div class="abp-pool-add">
 					<select id="abp-pool-col"><option value="">加载分类…</option></select>
@@ -596,14 +607,14 @@ class ABP_Settings {
 					<button type="button" class="button button-small" id="abp-refresh-plan">刷新</button>
 					<button type="button" class="button button-small" id="abp-plan-clear">清空计划</button>
 				</h2>
-				<p class="description">每日调度从备用池按序取题生成；单条可立即完成/删除，也可一键清空（清空仅删排队与跳过，已发布保留）。</p>
+				<p class="description">每日调度从备用池按序取题生成；单条可立即完成/删除，也可一键清空（清空仅删排队与跳过，已发布保留）。「立即完成」将任务置为优先执行，由生成引擎拉取后生成发布。</p>
 				<div id="abp-plan-container"><p class="description">点击「刷新」加载今日计划…</p></div>
 			</div>
 
 			<!-- ④.8 AI 工具箱（摘要 / 评论 / 热门话题，参照星河AI工具箱形态） -->
 			<div class="abp-card" id="abp-toolbox-card">
 				<h2>AI 工具箱（摘要 / 评论 / 热门话题 / AI 配图）</h2>
-				<p class="description">从下方文章列表勾选（可多选），批量生成摘要 / 评论 / 热门话题，或一键 AI 生成封面（消耗生图服务额度）。状态列显示是否已有相关内容。</p>
+				<p class="description">从下方文章列表勾选（可多选），批量生成摘要 / 评论 / 热门话题，或 AI 生成封面（消耗生图服务额度，走设置页「图片 API 配置」）。状态列显示是否已有相关内容。</p>
 				<div class="abp-toolbox-row">
 					<button type="button" class="button" id="abp-toolbox-refresh">刷新列表</button>
 					<label><input type="checkbox" id="abp-toolbox-all" /> 全选</label>
@@ -626,7 +637,7 @@ class ABP_Settings {
 					<span class="abp-toolbox-sep">|</span>
 					<button type="button" class="button" id="abp-toolbox-topics">批量热门话题</button>
 					<span class="abp-toolbox-sep">|</span>
-					<button type="button" class="button" id="abp-toolbox-cover" title="AI 自动生成封面并设为文章特色图（走已配置的生图服务）">AI 配图</button>
+					<button type="button" class="button" id="abp-toolbox-cover" title="AI 自动生成封面并设为文章特色图（走已配置的生图服务，逐篇生成）">AI 配图</button>
 				</div>
 				<div id="abp-toolbox-result" class="abp-toolbox-result"></div>
 			</div>

@@ -103,6 +103,8 @@ add_action('rest_api_init', function () {
 
 **请求日志**：每请求先 `abp_log_task()` 记 received，成功更新为 published(post_id)，失败记 failed(error)（脱敏后，06 §6）。所有响应统一 `rest_ensure_response(['ok' => ...])`。
 
+**被动端设计（v1.4.1 起）**：插件只暴露接收型端点（articles/health/categories/check/written-books/settings + 本地工具箱），**不包含任何代理端点**，不配置、不探测 Python 服务地址，后台无服务健康横幅（状态展示属主题职责）。Python 服务在 `config.yaml` 配置 WP 地址并主动推送；插件可在任何 WordPress 环境安装即用，与服务的网络拓扑无关。
+
 ## 4. 模型配置探测（class-abp-models.php）
 
 探测顺序硬性规定（总纲 3.4），`abp_prefer_self_key` 勾选时跳过 1-2 直接执行 3：

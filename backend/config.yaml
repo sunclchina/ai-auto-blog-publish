@@ -4,6 +4,11 @@
 # 路径均相对项目根 E:\my-project\A-Blog 解析。
 # ============================================================
 
+# ---------------- listen (default 127.0.0.1:8080 loopback; adjust for remote deploy, never 0.0.0.0) ----------------
+server:
+  host: "127.0.0.1"
+  port: 8080
+
 app:
   name: "A-Blog"
   version: "1.0.0"

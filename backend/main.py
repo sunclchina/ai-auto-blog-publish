@@ -597,6 +597,25 @@ def toolbox_cover_status(job_id: str) -> dict:
             "status": job["status"], "message": job["message"]}
 
 
+from fastapi.responses import HTMLResponse  # noqa: E402
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page() -> HTMLResponse:
+    """本地管理台：备用池/今日计划人工操作（仅回环可访问，同源调 /api/*）。"""
+    html_path = os.path.join(BACKEND_DIR, "admin.html")
+    try:
+        with open(html_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    except OSError:
+        raise HTTPException(status_code=500, detail=f"admin.html not found: {html_path}")
+
+
 if __name__ == "__main__":
+    cfg = get_config()
     db.init_db()
-    uvicorn.run(app, host="127.0.0.1", port=8080)
+    uvicorn.run(
+        app,
+        host=cfg.get("server.host") or cfg.get("app.host") or "127.0.0.1",
+        port=int(cfg.get("server.port") or cfg.get("app.port") or 8080),
+    )

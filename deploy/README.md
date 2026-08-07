@@ -16,11 +16,11 @@ Crontab (Asia/Shanghai)
 Python 伴生服务  FastAPI 127.0.0.1:8080   ◀── 仅回环, 不对外
    │  POST /wp-json/ai-auto-blog/v1/articles (Bearer Token)
    ▼
-WordPress (https://sunclnas.cn)  ← 插件 ai-auto-blog-publish (同机回环调用)
+WordPress (https://sunclnas.cn)  ← 插件 ai-auto-blog-publish (纯接收端, 不依赖服务地址)
 ```
 
-- **端口 8080 为项目固定约定**（开发原则 7），Python 服务只监听 `127.0.0.1`，禁止改绑定 0.0.0.0。
-- WP 插件与 Python 服务部署在同一台机器，走回环，无需开放任何公网端口。
+- **默认约定**：Python 服务默认监听 `127.0.0.1:8080`（`config.yaml` 的 `server.host/port` 可调整）；禁止绑定 0.0.0.0 暴露公网。
+- **插件为纯接收端（v1.4.1 起）**：不配置、不探测任何服务地址，后台无健康横幅；服务侧在 `config.yaml` 配置 WP 地址并主动推送（`wordpress.base_url` + Token）。插件可在任意 WordPress 环境安装即用，与服务是否同机无关。
 
 ---
 

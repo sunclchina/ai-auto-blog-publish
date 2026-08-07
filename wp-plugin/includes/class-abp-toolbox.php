@@ -55,8 +55,8 @@ class ABP_Toolbox {
 			return array( 'ok' => false, 'error' => '未配置模型 API Key（主题 AI 设置或插件配置）' );
 		}
 		$model = 'deepseek-v4-flash';
-		if ( ! empty( $models['models']['tech'] ) ) {
-			$model = (string) $models['models']['tech'];
+		if ( ! empty( $models['models']['stock'] ) ) {
+			$model = (string) $models['models']['stock'];
 		}
 		$payload = array(
 			'model'       => $model,
@@ -94,6 +94,234 @@ class ABP_Toolbox {
 			return array( 'ok' => false, 'error' => '模型未返回内容' );
 		}
 		return array( 'ok' => true, 'text' => $text );
+	}
+
+	/**
+	 * AI 生成文章封面（插件本地生图，OpenAI 兼容 /images/generations）。
+	 * 配置来源：abp_get_models()['image_api']（设置页「图片 API 配置」）。
+	 * 图片生成后自动上传媒体库并设为特色图。
+	 *
+	 * @param int $post_id 文章 ID。
+	 * @return array{ok:bool, post_id?:int, attachment_id?:int, error?:string}
+	 */
+	public static function generate_cover( $post_id ) {
+		$models = abp_get_models();
+		$img    = ( isset( $models['image_api'] ) && is_array( $models['image_api'] ) ) ? $models['image_api'] : array();
+		$provider = strtolower( isset( $img['provider'] ) ? (string) $img['provider'] : '' );
+		$key    = isset( $img['key'] ) ? (string) $img['key'] : '';
+		$endpoint = isset( $img['endpoint'] ) ? untrailingslashit( (string) $img['endpoint'] ) : '';
+		$model  = isset( $img['model'] ) ? (string) $img['model'] : '';
+		if ( '' === $provider || '' === trim( $key ) ) {
+			return array( 'ok' => false, 'error' => '未配置生图服务（设置页「图片 API 配置」）' );
+		}
+
+		$post_id = (int) $post_id;
+		$title = get_the_title( $post_id );
+		$plain = trim( (string) wp_strip_all_tags( get_post_field( 'post_content', $post_id ) ) );
+		$plain = (string) preg_replace( '/\s+/u', ' ', $plain );
+		$prompt = '博客文章封面图（宽幅 16:9，无文字无水印，构图专业克制）：' . $title;
+		if ( '' !== $plain ) {
+			$prompt .= '。内容要点：' . mb_substr( $plain, 0, 200 );
+		}
+		$style = self::cover_style( $post_id );
+		if ( '' !== $style ) {
+			$prompt .= '。风格：' . $style;
+		}
+		$prompt = mb_substr( $prompt, 0, 1000 );
+
+		// 按服务商分派：阿里百炼（DashScope 原生异步接口） / OpenAI 兼容（dall-e 等）。
+		if ( in_array( $provider, array( 'dashscope', 'bailian', 'aliyun', 'wanx', 'qwen-image' ), true ) ) {
+			$r = self::dashscope_generate( $endpoint, $key, $model, $prompt );
+		} else {
+			$r = self::openai_generate( $endpoint, $key, $model, $prompt );
+		}
+		if ( ! $r['ok'] ) {
+			return $r;
+		}
+
+		$att_id = ABP_Publish::attach_featured_image( $post_id, $title, $r['image'] );
+		if ( false === $att_id ) {
+			return array( 'ok' => false, 'error' => '图片上传失败（详见任务日志 image 记录）' );
+		}
+		set_post_thumbnail( $post_id, $att_id );
+		abp_log_write( 'toolbox', 'cover', 'cover', 'ok', 'AI 配图 post_id=' . $post_id . ' 附件=' . $att_id );
+		return array( 'ok' => true, 'post_id' => $post_id, 'attachment_id' => (int) $att_id );
+	}
+
+	/**
+	 * OpenAI 兼容生图（同步 /images/generations，返回 b64 或 url）。
+	 *
+	 * @param string $endpoint 接口基址（默认 https://api.openai.com/v1）。
+	 * @param string $key      API Key。
+	 * @param string $model    模型名（默认 dall-e-3）。
+	 * @param string $prompt   提示词。
+	 * @return array{ok:bool, image?:string, error?:string}
+	 */
+	private static function openai_generate( $endpoint, $key, $model, $prompt ) {
+		if ( '' === $endpoint ) {
+			$endpoint = 'https://api.openai.com/v1';
+		}
+		$model = $model ? $model : 'dall-e-3';
+		$sizes = array( '1792x1024', '1024x1024' );
+		$last_err = '';
+		foreach ( $sizes as $size ) {
+			$payload = array(
+				'model'           => $model,
+				'prompt'          => $prompt,
+				'n'               => 1,
+				'size'            => $size,
+				'response_format' => 'b64_json',
+			);
+			$resp = wp_remote_post(
+				$endpoint . '/images/generations',
+				array(
+					'timeout' => 120,
+					'headers' => array(
+						'Authorization' => 'Bearer ' . $key,
+						'Content-Type'  => 'application/json',
+					),
+					'body'    => wp_json_encode( $payload ),
+				)
+			);
+			if ( is_wp_error( $resp ) ) {
+				return array( 'ok' => false, 'error' => $resp->get_error_message() );
+			}
+			$code = (int) wp_remote_retrieve_response_code( $resp );
+			$body = json_decode( wp_remote_retrieve_body( $resp ), true );
+			if ( 200 !== $code ) {
+				$last_err = isset( $body['error']['message'] ) ? $body['error']['message'] : 'HTTP ' . $code;
+				continue; // 大尺寸失败回落小尺寸
+			}
+			$data = isset( $body['data'][0] ) && is_array( $body['data'][0] ) ? $body['data'][0] : array();
+			if ( ! empty( $data['b64_json'] ) ) {
+				return array( 'ok' => true, 'image' => 'data:image/png;base64,' . $data['b64_json'] );
+			}
+			if ( ! empty( $data['url'] ) ) {
+				return array( 'ok' => true, 'image' => (string) $data['url'] );
+			}
+			$last_err = '生图服务未返回图片';
+		}
+		return array( 'ok' => false, 'error' => $last_err ? $last_err : '生图失败' );
+	}
+
+	/**
+	 * 阿里百炼 DashScope 原生文生图（异步任务 + 轮询）。
+	 * 接口：POST /api/v1/services/aigc/text2image/image-synthesis（X-DashScope-Async: enable）→ 轮询 /api/v1/tasks/{id}。
+	 *
+	 * @param string $endpoint 接口基址（默认 https://dashscope.aliyuncs.com，不含 /compatible-mode）。
+	 * @param string $key      API Key。
+	 * @param string $model    模型名（默认 wanx-v1，兼容 wan2.x-t2i / qwen-image）。
+	 * @param string $prompt   提示词。
+	 * @return array{ok:bool, image?:string, error?:string}
+	 */
+	private static function dashscope_generate( $endpoint, $key, $model, $prompt ) {
+		if ( '' === $endpoint ) {
+			$endpoint = 'https://dashscope.aliyuncs.com';
+		}
+		$model = $model ? $model : 'wanx-v1';
+		$sizes = array( '1280*720', '1024*1024' ); // 站点 banner 尺寸优先，失败回落
+		$last_err = '';
+		foreach ( $sizes as $size ) {
+			$payload = array(
+				'model'      => $model,
+				'input'      => array( 'prompt' => $prompt ),
+				'parameters' => array( 'size' => $size, 'n' => 1 ),
+			);
+			$resp = wp_remote_post(
+				$endpoint . '/api/v1/services/aigc/text2image/image-synthesis',
+				array(
+					'timeout' => 30,
+					'headers' => array(
+						'Authorization'     => 'Bearer ' . $key,
+						'Content-Type'      => 'application/json',
+						'X-DashScope-Async' => 'enable',
+					),
+					'body'    => wp_json_encode( $payload ),
+				)
+			);
+			if ( is_wp_error( $resp ) ) {
+				return array( 'ok' => false, 'error' => $resp->get_error_message() );
+			}
+			$code = (int) wp_remote_retrieve_response_code( $resp );
+			$body = json_decode( wp_remote_retrieve_body( $resp ), true );
+			if ( 200 !== $code ) {
+				$last_err = isset( $body['message'] ) ? (string) $body['message'] : ( isset( $body['error'] ) ? wp_json_encode( $body['error'] ) : 'HTTP ' . $code );
+				continue;
+			}
+			$task_id = isset( $body['output']['task_id'] ) ? (string) $body['output']['task_id'] : '';
+			if ( '' === $task_id ) {
+				$last_err = '未返回任务 ID：' . mb_substr( wp_remote_retrieve_body( $resp ), 0, 200 );
+				continue;
+			}
+			$url = self::dashscope_poll( $endpoint, $key, $task_id );
+			if ( '' !== $url ) {
+				return array( 'ok' => true, 'image' => $url );
+			}
+			$last_err = '生成任务超时或失败（' . $model . ' ' . $size . '）';
+		}
+		return array( 'ok' => false, 'error' => $last_err ? $last_err : '生图失败' );
+	}
+
+	/**
+	 * 轮询 DashScope 任务（最多 12 次 × 5s ≈ 60s）。
+	 *
+	 * @param string $endpoint 接口基址。
+	 * @param string $key      API Key。
+	 * @param string $task_id  任务 ID。
+	 * @return string 图片 URL（空=失败）。
+	 */
+	private static function dashscope_poll( $endpoint, $key, $task_id ) {
+		for ( $i = 0; $i < 12; $i++ ) {
+			sleep( 5 );
+			$resp = wp_remote_get(
+				$endpoint . '/api/v1/tasks/' . rawurlencode( $task_id ),
+				array( 'timeout' => 20, 'headers' => array( 'Authorization' => 'Bearer ' . $key ) )
+			);
+			if ( is_wp_error( $resp ) ) {
+				continue;
+			}
+			$body = json_decode( wp_remote_retrieve_body( $resp ), true );
+			$out  = isset( $body['output'] ) ? $body['output'] : array();
+			$status = isset( $out['task_status'] ) ? (string) $out['task_status'] : '';
+			if ( 'SUCCEEDED' === $status ) {
+				$results = isset( $out['results'] ) ? $out['results'] : array();
+				if ( ! empty( $results[0]['url'] ) ) {
+					return (string) $results[0]['url'];
+				}
+				return '';
+			}
+			if ( in_array( $status, array( 'FAILED', 'CANCELED', 'UNKNOWN' ), true ) ) {
+				return '';
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * 文章分类 → 封面风格词（AI 配图提示词用）。
+	 *
+	 * @param int $post_id 文章 ID。
+	 * @return string 风格描述（空串=通用）。
+	 */
+	private static function cover_style( $post_id ) {
+		$terms = wp_get_post_terms( $post_id, 'category', array( 'fields' => 'names' ) );
+		$name  = is_wp_error( $terms ) || empty( $terms ) ? '' : implode( ' ', (array) $terms );
+		if ( false !== mb_strpos( $name, 'A股' ) || false !== mb_strpos( $name, '股市' ) ) {
+			return '金融数据图表风，冷静克制，深蓝主色';
+		}
+		if ( false !== mb_strpos( $name, 'IT' ) || false !== mb_strpos( $name, '技术' ) ) {
+			return '科技极简风，冷色渐变，几何元素';
+		}
+		if ( false !== mb_strpos( $name, '书评' ) ) {
+			return '书香雅致风，暖色纸质感，简约';
+		}
+		if ( false !== mb_strpos( $name, '读书' ) || false !== mb_strpos( $name, '国学' ) ) {
+			return '水墨国风，留白意境，淡雅';
+		}
+		if ( false !== mb_strpos( $name, '行业' ) ) {
+			return '商务数据信息图风，现代感';
+		}
+		return '';
 	}
 
 	/**

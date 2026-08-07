@@ -1,6 +1,6 @@
 /**
  * A-Blog 后台设置页交互脚本
- * 功能：备用选题池（唯一操作台：列表/新增/智能填充/编辑/删除/排序/列入计划/立即完成）、
+ * 功能：备用选题池（列表/新增/编辑/删除/排序/列入计划/立即完成）、今日计划任务（删除/立即完成/清空）、
  *       日志 AJAX 刷新、Token 复制、开关联动提示、表单保存提示。
  */
 ( function () {
@@ -155,7 +155,7 @@
 
 		var renderPool = function ( data ) {
 			if ( ! data || ! data.topics || ! data.topics.length ) {
-				poolBox.innerHTML = '<p class="description">备用选题池为空。点「智能填充」用素材生成一批，或下方手动添加。</p>';
+				poolBox.innerHTML = '<p class="description">备用选题池为空。下方手动添加，或由生成引擎在选题时自动补充候选入池。</p>';
 				return;
 			}
 			var html = '<table class="widefat striped"><thead><tr><th>#</th><th>栏目</th><th>备用选题</th><th>来源</th><th>状态</th><th>操作</th></tr></thead><tbody>';
@@ -171,6 +171,7 @@
 					'<td>' + esc( statusLabel( t.status ) ) + '</td>' +
 					'<td class="abp-pool-ops">' +
 					'<button type="button" class="button button-small abp-pool-plan" data-id="' + t.id + '" title="列入今日计划排队，定时生成发布">列入计划</button> ' +
+					'<button type="button" class="button button-small abp-pool-run" data-id="' + t.id + '" title="立即完成：列入计划并马上生成发布">立即完成</button> ' +
 					'<button type="button" class="button button-small abp-pool-up" data-id="' + t.id + '">↑</button> ' +
 					'<button type="button" class="button button-small abp-pool-down" data-id="' + t.id + '">↓</button> ' +
 					'<button type="button" class="button button-small abp-pool-edit" data-id="' + t.id + '">编辑</button> ' +
@@ -225,10 +226,10 @@
 				poolFillBtn.disabled = true;
 				fetch( poolRest + '/fill', {
 					method: 'POST', headers: headers(),
-					body: JSON.stringify( { n: 5 } ), credentials: 'same-origin'
+					body: JSON.stringify( {} ), credentials: 'same-origin'
 				} ).then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '响应解析失败 HTTP ' + r.status }; } ); } )
 					.then( function ( d ) {
-						poolMsgShow( d && d.ok ? '已智能填充 ' + ( d.added || 0 ) + ' 条备用选题（池满 20 自动停止）' : ( '填充失败：' + ( ( d && d.error ) || ( d && ( d.message || d.detail ) ) || '未知错误' ) ), ! ( d && d.ok ) );
+						poolMsgShow( d && d.ok ? '已智能填充 ' + ( d.added || 0 ) + ' 条备用选题' + ( d.note ? '（' + d.note + '）' : '' ) : ( '填充失败：' + ( ( d && d.error ) || ( d && ( d.message || d.detail ) ) || '未知错误' ) ), ! ( d && d.ok ) );
 						if ( d && d.ok ) { loadPool(); }
 					} )
 					.catch( function ( e ) { poolMsgShow( '网络错误：' + ( e && e.message ? e.message : e ), true ); } )
@@ -244,7 +245,7 @@
 					method: 'POST', headers: headers(), credentials: 'same-origin'
 				} ).then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '响应解析失败 HTTP ' + r.status }; } ); } )
 					.then( function ( d ) {
-						poolMsgShow( d && d.ok ? '已清空 ' + ( d.cleared || 0 ) + ' 条备用选题（可重新智能填充）' : ( '清空失败：' + ( ( d && d.error ) || ( d && ( d.message || d.detail ) ) || '未知错误' ) ), ! ( d && d.ok ) );
+						poolMsgShow( d && d.ok ? '已清空 ' + ( d.cleared || 0 ) + ' 条备用选题' : ( '清空失败：' + ( ( d && d.error ) || ( d && ( d.message || d.detail ) ) || '未知错误' ) ), ! ( d && d.ok ) );
 						if ( d && d.ok ) { loadPool(); }
 					} )
 					.catch( function ( e ) { poolMsgShow( '网络错误：' + ( e && e.message ? e.message : e ), true ); } )
@@ -367,6 +368,17 @@
 					} )
 					.catch( function ( e ) { poolMsgShow( '网络错误：' + ( e && e.message ? e.message : e ), true ); } );
 			}
+			if ( el.classList.contains( 'abp-pool-run' ) ) {
+				if ( ! window.confirm( '立即完成该备用题（列入计划并马上生成发布，消耗 AI 额度）？' ) ) { return; }
+				fetch( poolRest + '/' + id + '/run', {
+					method: 'POST', headers: headers(), credentials: 'same-origin'
+				} ).then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '响应解析失败 HTTP ' + r.status }; } ); } )
+					.then( function ( d ) {
+						poolMsgShow( d && d.ok ? '✅ 已列入计划并请求立即执行，生成引擎将优先处理（可在今日计划任务区查看进度）' : ( '执行失败：' + ( ( d && d.error ) || ( d && ( d.message || d.detail ) ) || '未知错误' ) ), ! ( d && d.ok ) );
+						if ( d && d.ok ) { loadPool(); loadPlan(); }
+					} )
+					.catch( function ( e ) { poolMsgShow( '网络错误：' + ( e && e.message ? e.message : e ), true ); } );
+			}
 		} );
 		/* ================= 今日计划任务（删除 / 立即完成 / 清空） ================= */
 		var planBox = document.getElementById( 'abp-plan-container' );
@@ -442,7 +454,7 @@
 
 			if ( el.classList.contains( 'abp-plan-del' ) ) {
 				if ( ! window.confirm( '确定删除该计划任务吗？' ) ) { return; }
-				fetch( planRest.replace( /\/tasks$/, '/topics' ) + '/' + encodeURIComponent( taskId ), {
+				fetch( planRest + '/' + encodeURIComponent( taskId ), {
 					method: 'DELETE', headers: headers(), credentials: 'same-origin'
 				} ).then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '响应解析失败 HTTP ' + r.status }; } ); } )
 					.then( function ( d ) {
@@ -594,7 +606,7 @@
 				var okN = 0, failN = 0, cur = 0;
 				var next = function () {
 					if ( cur >= ids.length ) {
-						var msg = '批量' + ( 'summary' === action ? '摘要' : 'comments' === action ? '评论' : 'cover' === action ? '配图' : '话题' ) + '完成：成功 ' + okN + ' 篇，失败 ' + failN + ' 篇';
+						var msg = '批量' + ( 'summary' === action ? '摘要' : 'comments' === action ? '评论' : 'ai-cover' === action ? 'AI 配图' : 'cover' === action ? '配图' : '话题' ) + '完成：成功 ' + okN + ' 篇，失败 ' + failN + ' 篇';
 						tbShow( msg, failN > 0 && 0 === okN );
 						alert( msg );
 						if ( btn ) { btn.disabled = false; }
@@ -642,74 +654,8 @@
 		document.getElementById( 'abp-toolbox-topics' ) && document.getElementById( 'abp-toolbox-topics' ).addEventListener( 'click', function ( e ) {
 			tbBatch( 'topics', {}, e.target );
 		} );
-
-		// AI 配图：勾选文章 → 后端异步 AI 生成封面（轮询 job 状态，完成后刷新列表）
 		document.getElementById( 'abp-toolbox-cover' ) && document.getElementById( 'abp-toolbox-cover' ).addEventListener( 'click', function ( e ) {
-			var ids = tbSelected();
-			if ( ! ids.length ) { tbShow( '请先勾选文章（可多选）', true ); alert( '请先勾选文章' ); return; }
-			if ( ! window.confirm( '将为勾选的 ' + ids.length + ' 篇文章用 AI 生成封面（消耗生图服务额度，每篇约 10-60 秒），继续？' ) ) { return; }
-			var btn = e.target;
-			btn.disabled = true;
-			tbShow( '正在创建 AI 配图任务…', false );
-			fetch( tbUrl + '/ai-cover', {
-				method: 'POST', headers: headers(),
-				body: JSON.stringify( { post_ids: ids } ), credentials: 'same-origin'
-			} ).then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '响应解析失败 HTTP ' + r.status }; } ); } )
-				.then( function ( d ) {
-					if ( ! d || ! d.ok || ! d.jobs ) {
-						var em = ( d && ( d.error || d.detail ) ) || '未知错误';
-						tbShow( '创建失败：' + em, true );
-						alert( '创建 AI 配图任务失败：' + em );
-						btn.disabled = false;
-						return;
-					}
-					var jobs = d.jobs;
-					var okN = 0, failN = 0, cur = 0;
-					var next = function () {
-						if ( cur >= jobs.length ) {
-							var msg = 'AI 配图完成：成功 ' + okN + ' 篇，失败 ' + failN + ' 篇';
-							tbShow( msg, failN > 0 && 0 === okN );
-							alert( msg );
-							btn.disabled = false;
-							tbLoadPosts();
-							return;
-						}
-						var job = jobs[ cur ];
-						cur++;
-						if ( ! job.job_id ) { failN++; tbShow( '文章 ' + job.post_id + ' 任务创建失败：' + ( job.error || '' ), true ); next(); return; }
-						var poll = function ( tries ) {
-							fetch( tbUrl + '/ai-cover/' + encodeURIComponent( job.job_id ), { headers: headers(), credentials: 'same-origin' } )
-								.then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '解析失败' }; } ); } )
-								.then( function ( s ) {
-									if ( s && s.status === 'done' ) {
-										okN++;
-										tbShow( 'AI 配图 ' + cur + '/' + jobs.length + '（文章 ' + job.post_id + '）完成', false );
-										next();
-									} else if ( s && s.status === 'failed' ) {
-										failN++;
-										tbShow( '文章 ' + job.post_id + ' 失败：' + ( s.message || '' ), true );
-										next();
-									} else if ( tries > 0 ) {
-										tbShow( 'AI 配图 ' + cur + '/' + jobs.length + '（文章 ' + job.post_id + '）生成中…', false );
-										setTimeout( function () { poll( tries - 1 ); }, 3000 );
-									} else {
-										failN++;
-										tbShow( '文章 ' + job.post_id + ' 生成超时（可稍后重新点配图）', true );
-										next();
-									}
-								} )
-								.catch( function () { failN++; next(); } );
-						};
-						poll( 60 );
-					};
-					next();
-				} )
-				.catch( function ( er ) {
-					var em2 = ( er && er.message ? er.message : er );
-					tbShow( '网络错误：' + em2, true );
-					alert( '网络错误：' + em2 );
-					btn.disabled = false;
-				} );
+			tbBatch( 'ai-cover', {}, e.target );
 		} );
 
 		tbLoadPosts();

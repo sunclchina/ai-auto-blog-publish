@@ -258,7 +258,7 @@ def apply_wp_settings(cfg: Config, payload: Dict[str, Any]) -> Config:
     """合并 WP 插件 /settings 开关与调度参数（让后台复选框真正生效）。
 
     payload 字段：ai_enabled / column_*_enabled / image_enabled / publish_enabled /
-    daily_limit / daily_token_limit / publish_window / column_ratio（均为 bool/int/str）。
+    daily_limit / daily_token_limit / publish_window（均为 bool/int/str）。
     """
     if not isinstance(payload, dict):
         return cfg

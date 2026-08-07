@@ -48,7 +48,7 @@
 
 ```
 E:\my-project\A-Blog\
-├── backend\                 # Python 伴生服务（FastAPI, 127.0.0.1:8080）
+├── backend\                 # Python 伴生服务（FastAPI, 默认 127.0.0.1:8080, server.host/port 可调）
 │   ├── main.py              # FastAPI 入口 + 健康检查 /healthz
 │   ├── config.py            # 配置加载（config.yaml + 环境变量 + WP 同步）
 │   ├── config.yaml          # 默认配置（不含密钥）
