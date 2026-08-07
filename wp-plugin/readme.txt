@@ -4,20 +4,20 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.4.1
+Stable tag: 1.5.24
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-AI 全自动博客内容生产与发布插件（A-Blog）：接收 Python 伴生服务产出的成品文章，SimHash 指纹查重后自动建文、分类、打标、配图并发布。
+AI 全自动博客插件（A-Blog）：自动选题、AI 写作、自动配图、定时发布，无人值守日更。自足功能插件——数据、调度、素材、生成全部在 WordPress 内完成，任何环境安装即用，不依赖外部服务。
 
 == Description ==
 
-A-Blog 是「AI 全自动博客」系统的 WordPress 发布端插件，配合 Python 伴生服务（调度 + AI 生成）实现无人值守日更。
+A-Blog 是**自足功能插件**：内置调度（WP-Cron）、动态选题、AI 写作、行情采集、AI 配图、自动发布，支持 A股复盘 / IT技术 / 国学 / 书评 / 行业分析五个栏目。装进 WordPress 即全自动日更，可在本地、云端、任何环境运行。
 
 **核心能力**
 
-* 接收成品文章：`POST /wp-json/ai-auto-blog/v1/articles`（Bearer Token 认证）
-* SimHash 指纹查重：与 Python 侧同算法（字符 2-gram + crc32 + 64 位权重累加），汉明距离 < 4 判重，发布前自动拦截重复内容
+* 全自动调度：每日自动建队列 → 到点生成 → 发布；错过任务自动补执行（关机/无访问不丢）
+* SimHash 指纹查重：字符 2-gram + crc32 + 64 位权重累加，汉明距离 < 4 判重，发布前自动拦截重复内容
 * 自动建文：分类 slug 匹配（a-share-review / it-notes / reading-classics），不存在自动创建；标签智能打标
 * SEO Meta 描述：自动适配 Yoast（_yoast_wpseo_metadesc）/ RankMath（rank_math_description）/ 通用 _abp_meta_description
 * 封面配图：支持 base64 与 URL 上传媒体库并绑定特色图（1280×720 WebP，适配青简主题）
@@ -35,28 +35,27 @@ A-Blog 是「AI 全自动博客」系统的 WordPress 发布端插件，配合 P
 
 == Installation ==
 
-A-Blog 为全家桶：**插件（PHP）+ 伴生服务（Python）**。ZIP 内已含 `backend/` 目录，安装两步：
+A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（可在本地、云端、任何 WordPress 环境运行）。
 
-1. 将 `ai-auto-blog-publish` 文件夹上传到 `/wp-content/plugins/` 目录（或后台直接上传 ZIP），激活「AI自动博客 A-Blog」
-2. 安装并启动 Python 伴生服务（默认 127.0.0.1:8080，`backend/config.yaml` 的 `server.host/port` 可调）：
-   - **Windows**：执行 `backend/install-backend.bat`，再运行 `backend/start-backend.bat`
-   - **Linux**：`cd backend && sudo bash install.sh && sudo systemctl start ablog`
-3. 配置密钥（`backend/config.yaml`，首次由安装脚本从模板生成，按注释字段注入）：
-   - DeepSeek Key（AI 生成必需）
-   - WP Token（后台「AI 自动博客」→「API Token」生成，发布必需）
-4. 后台「AI 自动博客」页：确认开关与调度配置（每日篇数、Token 额度、发布时段、栏目比例）
+1. 后台「插件 → 安装插件 → 上传」上传 `ai-auto-blog-publish-v1.5.24.zip`，激活
+   - 激活自动建表、注册调度（每日自动选题/生成/发布），无需额外操作
+2. 「AI 自动博客」设置页按需配置：
+   - **AI 模型**（默认 deepseek-chat）与 **DeepSeek API Key**（或复用青简主题密钥，自动探测）
+   - 可选：**图片 API 配置**（AI 配图用，支持阿里百炼/OpenAI 兼容）、**Tavily API Key**（行业分析用）、**站点图书目录**（书评选题用）、**IT RSS 源**（IT 栏目动态选题）
+3. 生成 API Token（供外部调用）
+4. 后台可人工干预：备用选题池、今日计划任务、日志、AI 工具箱（摘要/评论/话题/AI 配图）
 
-**插件为纯接收端**：不配置、不探测伴生服务地址，后台无服务健康横幅；服务侧在 `config.yaml` 配置 WP 地址后主动推送文章。插件可在任意 WordPress 环境安装即用，与服务是否同机无关。服务部署详见 `backend/README.md`（Windows）或 `deploy/README.md`（Linux）。
+**升级**：上传新 zip 覆盖即可（自动建表自愈）；后台「自动升级」可检查 GitHub Release 更新。
 
 == Frequently Asked Questions ==
 
 = 模型从哪里来？ =
 
-探测顺序：① 青简主题 `qy_ai_api_key` option + `qy_ai_model` theme_mod；② 插件自身「DeepSeek API Key」配置。均未配置时 `/health` 返回 `no_model_configured`，Python 侧将拦截任务不消耗 Token。
+探测顺序：① 青简主题密钥；② 插件自身「DeepSeek API Key」配置。均未配置时任务无法生成（后台显示「无可用模型」）。
 
 = API Token 丢了怎么办？ =
 
-后台「AI 自动博客」→「API Token」→「重新生成」。注意旧 Token 立即失效，需同步更新 Python 侧配置。
+后台「AI 自动博客」→「API Token」→「重新生成」。注意旧 Token 立即失效，需同步更新使用方配置。
 
 = 如何只存草稿不发布？ =
 
@@ -64,13 +63,24 @@ A-Blog 为全家桶：**插件（PHP）+ 伴生服务（Python）**。ZIP 内已
 
 = 重复内容会被发布吗？ =
 
-不会。发布前对正文做 SimHash 指纹查重，与站内历史文章汉明距离 < 4 即拒绝（HTTP 409），Python 侧标记任务为 skipped。
+不会。发布前对正文做 SimHash 指纹查重，与站内历史文章汉明距离 < 4 即拒绝（HTTP 409），任务标记为 skipped。
 
 = 封面图支持什么格式？ =
 
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.24 =
+
+* ★ **插件自足重构**：数据/调度/素材/生成全部在 WordPress 内完成，任何环境安装即用
+* 内置 WP-Cron 调度：每日自动建队列、到点生成发布；**错过任务自动补执行**（关机/无访问不丢，复盘用历史行情补写）
+* 大模型选题 + 写作：五栏目（复盘/IT技术/国学/书评/行业分析）统一模型
+* 动态素材：唐诗三百首/宋词三百首联网获取每日更新、IT 问题池+RSS、站点书目查重、Tavily 行业搜索（可选 key）
+* A股复盘：仅交易日选题，新浪/东财实时行情（历史补写用日K），先写正文后定副标题，禁止编造
+* AI 配图本地化：阿里百炼（wanx-v1）与 OpenAI 兼容生图，自动上传设特色图
+* 后台管理台：备用选题池、今日计划任务、任务日志、AI 工具箱
+* 覆盖升级自愈：自动建表，无需停用启用
 
 = 1.4.1 =
 
