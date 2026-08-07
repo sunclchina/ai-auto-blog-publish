@@ -130,6 +130,12 @@ class ABP_Toolbox {
 		if ( '' !== $plain ) {
 			$prompt .= '。文章内容：' . mb_substr( $plain, 0, 300 );
 		}
+
+		// 复盘/股市特判：行情数据本身无差异化意象，明确引导模型画当日热点板块的具象场景，避免 K 线模板。
+		if ( self::is_stock_post( $post_id ) ) {
+			$prompt .= '。画面以当日市场热点板块或盘面特点的具象意象为主，避免千篇一律的 K 线图、蜡烛图、货币符号构图';
+		}
+
 		$style = self::cover_style( $post_id );
 		if ( '' !== $style ) {
 			// 风格词弱化：仅作氛围参考，避免压过内容。
@@ -333,6 +339,18 @@ class ABP_Toolbox {
 	}
 
 	/**
+	 * 是否复盘/股市文章。
+	 *
+	 * @param int $post_id 文章 ID。
+	 * @return bool
+	 */
+	private static function is_stock_post( $post_id ) {
+		$terms = wp_get_post_terms( $post_id, 'category', array( 'fields' => 'names' ) );
+		$name  = is_wp_error( $terms ) || empty( $terms ) ? '' : implode( ' ', (array) $terms );
+		return false !== mb_strpos( $name, 'A股' ) || false !== mb_strpos( $name, '股市' );
+	}
+
+	/**
 	 * 从标题+正文提炼具象视觉意象词（AI 提炼，失败兜底书名号内容）。
 	 *
 	 * 具象词前置到提示词开头，作为画面主体；避免风格词主导导致同类文章封面雷同。
@@ -343,10 +361,15 @@ class ABP_Toolbox {
 	 * @return string[] 具象词数组（0-5 个）。
 	 */
 	private static function extract_imagery( $post_id, $title, $plain ) {
+		$is_stock = self::is_stock_post( $post_id );
+		$system   = '你是插画师。从文章标题和内容中提炼 3-5 个具象的视觉意象词（具体事物或场景，如“齿轮”“星空”“老书房”“雨巷”），用于 AI 绘画提示词。要求：①必须是具象名词或场景，不要抽象词（如“人生”“哲学”“命运”）；②与文章核心内容强相关；③每个 2-6 字；④只输出 JSON 数组，如["齿轮","旧书桌","晨光"]。';
+		if ( $is_stock ) {
+			$system .= '若文章是股市/行情复盘：优先从当日领涨板块或盘面特点提炼具象场景（如“算力机房”“白酒酒坛”“军工战机”“光伏电站”），不要通用金融元素（K线图、蜡烛图、货币符号、炒股屏幕）。';
+		}
 		$messages = array(
 			array(
 				'role'    => 'system',
-				'content' => '你是插画师。从文章标题和内容中提炼 3-5 个具象的视觉意象词（具体事物或场景，如“齿轮”“星空”“老书房”“雨巷”），用于 AI 绘画提示词。要求：①必须是具象名词或场景，不要抽象词（如“人生”“哲学”“命运”）；②与文章核心内容强相关；③每个 2-6 字；④只输出 JSON 数组，如["齿轮","旧书桌","晨光"]。',
+				'content' => $system,
 			),
 			array(
 				'role'    => 'user',

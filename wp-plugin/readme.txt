@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.26
+Stable tag: 1.5.27
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -70,6 +70,10 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.27 =
+
+* **复盘封面特判**：股市/复盘文章生图引导模型画当日热点板块的具象场景（算力机房/白酒酒坛/军工战机…），明确避免 K 线/蜡烛图/货币符号模板——复盘封面不再千篇一律
 
 = 1.5.26 =
 
