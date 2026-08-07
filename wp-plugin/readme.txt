@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.24
+Stable tag: 1.5.26
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -70,6 +70,15 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.26 =
+
+* **AI 配图提示词优化**：从标题+正文提炼具象视觉意象词作画面主体（前置、权重最高），内容要点扩至 300 字，风格词弱化为氛围参考——同类栏目文章封面不再雷同
+* 附带：readme.txt Stable tag 同步（1.5.24 → 1.5.26）
+
+= 1.5.25 =
+
+* 分类对齐主题已有分类（IT→it、行业→行业、股市→a-share-review、读书→reading-classics），不再新建杂类
 
 = 1.5.24 =
 

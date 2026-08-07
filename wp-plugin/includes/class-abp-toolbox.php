@@ -116,16 +116,24 @@ class ABP_Toolbox {
 		}
 
 		$post_id = (int) $post_id;
-		$title = get_the_title( $post_id );
-		$plain = trim( (string) wp_strip_all_tags( get_post_field( 'post_content', $post_id ) ) );
-		$plain = (string) preg_replace( '/\s+/u', ' ', $plain );
-		$prompt = '博客文章封面图（宽幅 16:9，无文字无水印，构图专业克制）：' . $title;
+		$title  = get_the_title( $post_id );
+		$plain  = trim( (string) wp_strip_all_tags( get_post_field( 'post_content', $post_id ) ) );
+		$plain  = (string) preg_replace( '/\s+/u', ' ', $plain );
+
+		// 画面主体：从标题+正文提炼具象意象词（前置，权重最高）。
+		$imagery = self::extract_imagery( $post_id, $title, $plain );
+		$prompt  = '博客文章封面图（宽幅 16:9，无文字无水印，构图专业克制）';
+		if ( ! empty( $imagery ) ) {
+			$prompt .= '。画面主体：' . implode( '、', $imagery );
+		}
+		$prompt .= '。文章主题：' . $title;
 		if ( '' !== $plain ) {
-			$prompt .= '。内容要点：' . mb_substr( $plain, 0, 200 );
+			$prompt .= '。文章内容：' . mb_substr( $plain, 0, 300 );
 		}
 		$style = self::cover_style( $post_id );
 		if ( '' !== $style ) {
-			$prompt .= '。风格：' . $style;
+			// 风格词弱化：仅作氛围参考，避免压过内容。
+			$prompt .= '。整体氛围可参考：' . $style;
 		}
 		$prompt = mb_substr( $prompt, 0, 1000 );
 
@@ -322,6 +330,62 @@ class ABP_Toolbox {
 			return '商务数据信息图风，现代感';
 		}
 		return '';
+	}
+
+	/**
+	 * 从标题+正文提炼具象视觉意象词（AI 提炼，失败兜底书名号内容）。
+	 *
+	 * 具象词前置到提示词开头，作为画面主体；避免风格词主导导致同类文章封面雷同。
+	 *
+	 * @param int    $post_id 文章 ID。
+	 * @param string $title   文章标题。
+	 * @param string $plain   正文纯文本。
+	 * @return string[] 具象词数组（0-5 个）。
+	 */
+	private static function extract_imagery( $post_id, $title, $plain ) {
+		$messages = array(
+			array(
+				'role'    => 'system',
+				'content' => '你是插画师。从文章标题和内容中提炼 3-5 个具象的视觉意象词（具体事物或场景，如“齿轮”“星空”“老书房”“雨巷”），用于 AI 绘画提示词。要求：①必须是具象名词或场景，不要抽象词（如“人生”“哲学”“命运”）；②与文章核心内容强相关；③每个 2-6 字；④只输出 JSON 数组，如["齿轮","旧书桌","晨光"]。',
+			),
+			array(
+				'role'    => 'user',
+				'content' => "文章标题：{$title}\n\n正文（节选）：\n" . mb_substr( $plain, 0, 600 ) . "\n\n请提炼具象视觉意象词（JSON 数组）：",
+			),
+		);
+		$r = self::ai_chat( $messages, 150, 0.4 );
+		if ( isset( $r['ok'] ) && $r['ok'] && ! empty( $r['text'] ) ) {
+			$text = trim( (string) $r['text'] );
+			$text = (string) preg_replace( '/^```(?:json)?/i', '', $text );
+			$text = (string) preg_replace( '/```$/', '', $text );
+			$text = trim( $text );
+			$arr  = json_decode( $text, true );
+			if ( ! is_array( $arr ) && preg_match( '/\[[^\]]*\]/s', $text, $mm ) ) {
+				$arr = json_decode( $mm[0], true );
+			}
+			if ( is_array( $arr ) ) {
+				$out = array();
+				foreach ( $arr as $v ) {
+					$v = trim( (string) $v );
+					if ( '' !== $v && count( $out ) < 5 ) {
+						$out[] = $v;
+					}
+				}
+				if ( count( $out ) >= 2 ) {
+					return $out;
+				}
+			}
+		}
+		// 兑底：标题中的书名号/引号内容作为具象词。
+		$fallback = array();
+		if ( preg_match_all( '/[《「"\x{201c}]([^》」"\x{201d}]{2,12})[》」"\x{201d}]/u', $title, $m ) ) {
+			foreach ( array_unique( $m[1] ) as $v ) {
+				if ( count( $fallback ) < 3 ) {
+					$fallback[] = $v;
+				}
+			}
+		}
+		return $fallback;
 	}
 
 	/**
