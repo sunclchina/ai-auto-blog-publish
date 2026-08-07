@@ -89,6 +89,12 @@ A-Blog/
 - API Key / Token 仅存 WP option，**不入日志、不入库**
 - REST 接口全部 Bearer Token 鉴权
 
+## 支持与赞赏
+
+如果 A-Blog 对你有帮助，欢迎赞赏支持：
+
+<img src="assets/赞赏码.jpg" alt="赞赏码" width="200" />
+
 ## 许可
 
 GPLv2 or later（插件部分）。
