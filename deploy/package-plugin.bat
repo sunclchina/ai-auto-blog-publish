@@ -52,17 +52,35 @@ echo [A-Blog] deploy scripts bundled.
 rem ---- 4. backend data template (real data created on install) ----
 mkdir "%DST%\backend\data" >nul 2>&1
 (
-  echo A-Blog 伴生服务数据目录（安装后生成，勿提交到版本库）:
-  echo   ablog.db         SQLite 数据库（任务/选题/指纹）
+  echo A-Blog ???????????????????????:
+  echo   ablog.db         SQLite ??????/??/???
   echo   wp_token.txt     WordPress REST Bearer Token
-  echo   tavily_key.txt   Tavily 搜索 API Key
-  echo   sensitive_words.txt  敏感词表（缺失自动创建）
-  echo   logs\            运行日志
+  echo   tavily_key.txt   Tavily ?? API Key
+  echo   sensitive_words.txt  ????????????
+  echo   logs\            ????
 ) > "%DST%\backend\data\README.txt"
 echo [A-Blog] data template ready.
 
-rem ---- 5. package ----
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item '%OUT%' -Force -ErrorAction SilentlyContinue; Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory('%TMP%', '%OUT%'); Remove-Item '%TMP%' -Recurse -Force; Write-Host ('[A-Blog] output: ' + '%OUT%')"
+rem ---- 5. package (entries use forward slashes, required by WordPress) ----
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Remove-Item '%OUT%' -Force -ErrorAction SilentlyContinue;" ^
+  "Add-Type -AssemblyName System.IO.Compression;" ^
+  "Add-Type -AssemblyName System.IO.Compression.FileSystem;" ^
+  "$root = Join-Path $PWD 'dist\_pkg_tmp';" ^
+  "$outAbs = Join-Path $PWD '%OUT%';" ^
+  "$fs = [System.IO.File]::Open($outAbs, [System.IO.FileMode]::CreateNew);" ^
+  "$zip = New-Object System.IO.Compression.ZipArchive($fs, [System.IO.Compression.ZipArchiveMode]::Create);" ^
+  "Get-ChildItem $root -Recurse -File | ForEach-Object {" ^
+  "  $rel = $_.FullName.Substring($root.Length + 1).Replace('\','/');" ^
+  "  $entry = $zip.CreateEntry($rel, [System.IO.Compression.CompressionLevel]::Optimal);" ^
+  "  $es = $entry.Open();" ^
+  "  $bytes = [System.IO.File]::ReadAllBytes($_.FullName);" ^
+  "  $es.Write($bytes, 0, $bytes.Length);" ^
+  "  $es.Close();" ^
+  "};" ^
+  "$zip.Dispose(); $fs.Close();" ^
+  "Remove-Item $root -Recurse -Force;" ^
+  "Write-Host ('[A-Blog] output: ' + $outAbs)"
 
 if exist "%OUT%" (
   echo [A-Blog] package done.

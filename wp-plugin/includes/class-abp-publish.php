@@ -23,28 +23,35 @@ if ( ! defined( 'ABSPATH' ) ) {
 class ABP_Publish {
 
 	/**
-	 * 分类 slug 映射表（对齐主题已有分类：股市 / IT / 读书 / 行业）。
-	 * key 为栏目名/常见别名（小写），value 为站点分类 slug。
+	 * 分类映射表（对齐博客已有分类，值 = 目标分类名）：
+	 * 股市 / IT / 读书 / 行业。任何别名都归入对应已有分类，绝不产生新分类。
+	 * key 为栏目码或常见别名（小写），value 为博客已定义的分类名。
 	 */
 	private static $category_slug_map = array(
-		'a股每日复盘' => 'a-share-review',
-		'a股复盘'     => 'a-share-review',
-		'复盘'        => 'a-share-review',
-		'stock'       => 'a-share-review',
-		'股市'        => 'a-share-review',
-		'股票'        => 'a-share-review',
-		'it技术笔记'  => 'it',
-		'技术笔记'    => 'it',
-		'技术'        => 'it',
-		'tech'        => 'it',
-		'读书与国学'  => 'reading-classics',
-		'读书'        => 'reading-classics',
-		'国学'        => 'reading-classics',
-		'reading'     => 'reading-classics',
-		'book'        => 'reading-classics',
+		'stock'       => '股市',
+		'a-share-review' => '股市',
+		'a股每日复盘' => '股市',
+		'a股复盘'     => '股市',
+		'复盘'        => '股市',
+		'股市'        => '股市',
+		'股票'        => '股市',
+		'tech'        => 'IT',
+		'it技术笔记'  => 'IT',
+		'it技术'      => 'IT',
+		'技术笔记'    => 'IT',
+		'技术'        => 'IT',
+		'it-notes'    => 'IT',
+		'it'          => 'IT',
+		'reading'     => '读书',
+		'book'        => '读书',
+		'reading-classics' => '读书',
+		'读书与国学'  => '读书',
+		'读书'        => '读书',
+		'国学'        => '读书',
+		'书评'        => '读书',
+		'industry'    => '行业',
 		'行业综述'    => '行业',
 		'行业'        => '行业',
-		'industry'    => '行业',
 	);
 
 	/**
@@ -232,39 +239,30 @@ class ABP_Publish {
 			return 0;
 		}
 
-		// ① 映射表 slug。
-		$slug = '';
-		$key  = mb_strtolower( $category, 'UTF-8' );
+		// ① 映射表 → 目标分类名（对齐博客已有分类）。
+		$key = mb_strtolower( $category, 'UTF-8' );
 		if ( isset( self::$category_slug_map[ $key ] ) ) {
-			$slug = self::$category_slug_map[ $key ];
-		} else {
-			$slug = sanitize_title( $category );
+			$target = self::$category_slug_map[ $key ];
+			// 按目标分类名匹配。
+			$term = get_term_by( 'name', $target, 'category' );
+			if ( $term && ! is_wp_error( $term ) ) {
+				return (int) $term->term_id;
+			}
+			// 按目标 slug 匹配（英文 slug，如 it / a-share-review）。
+			$term = get_term_by( 'slug', sanitize_title( $target ), 'category' );
+			if ( $term && ! is_wp_error( $term ) ) {
+				return (int) $term->term_id;
+			}
+			// 目标分类不存在（被删除）：回退默认分类，不创建新分类。
+			return (int) get_option( 'default_category', 1 );
 		}
 
-		// ② 按 slug 匹配已有分类。
-		$term = get_term_by( 'slug', $slug, 'category' );
-		if ( $term && ! is_wp_error( $term ) ) {
-			return (int) $term->term_id;
-		}
-
-		// ③ 按名字匹配。
+		// ② 无映射：仅按名字匹配已有分类，绝不创建新分类。
 		$term = get_term_by( 'name', $category, 'category' );
 		if ( $term && ! is_wp_error( $term ) ) {
 			return (int) $term->term_id;
 		}
-
-		// ④ 创建（优先用映射 slug；无映射时交给 WP 默认生成）。
-		if ( $slug ) {
-			$new = wp_insert_term( $category, 'category', array( 'slug' => $slug ) );
-			if ( ! is_wp_error( $new ) && isset( $new['term_id'] ) ) {
-				return (int) $new['term_id'];
-			}
-		}
-		$new = wp_create_category( $category );
-		if ( is_wp_error( $new ) ) {
-			return 0;
-		}
-		return (int) $new;
+		return (int) get_option( 'default_category', 1 );
 	}
 
 	/**
