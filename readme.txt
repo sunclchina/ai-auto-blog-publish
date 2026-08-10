@@ -1,10 +1,10 @@
-﻿=== AI自动博客 A-Blog ===
+=== AI自动博客 A-Blog ===
 Contributors: ablogteam
 Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.29
+Stable tag: 1.5.30
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -71,7 +71,7 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 
 == Changelog ==
 
-= 1.5.29 =
+= 1.5.30 =
 * 分类归并：发布分类解析重写——industry/it-notes/IT技术笔记 等别名一律归入博客已有分类（行业/IT/股市/读书），匹配不到回退默认分类，绝不创建新分类
 
 = 1.5.27 =
