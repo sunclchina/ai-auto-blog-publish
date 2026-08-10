@@ -51,7 +51,7 @@ A-Blog 是一个**自足的功能插件**：数据、调度、素材、生成全
 
 ## IIS 环境兼容（Windows 服务器）
 
-IIS + FastCGI 对 URL 中的**中文路径按 GBK 解码（实际是 UTF-8）**，会导致中文 slug 的分类/标签链接访问 404（英文 slug 不受影响）。A-Blog 已内置两段兼容层（`wp-plugin/mu-plugins/`），IIS 环境部署时请将目录下两个文件复制到 `wp-content/mu-plugins/`：
+IIS + FastCGI 对 URL 中的**中文路径按 GBK 解码（实际是 UTF-8）**，会导致中文 slug 的分类/标签链接访问 404（英文 slug 不受影响）。A-Blog 已内置两段兼容层（`mu-plugins/`），IIS 环境部署时请将目录下两个文件复制到 `wp-content/mu-plugins/`：
 
 | 文件 | 作用 |
 |---|---|

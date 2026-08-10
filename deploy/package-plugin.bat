@@ -2,7 +2,7 @@
 rem ============================================================
 rem  A-Blog plugin one-click package script (Windows)
 rem  Usage: double-click -> dist\ai-auto-blog-publish-v<ver>.zip
-rem  Version is auto-read from wp-plugin\ai-auto-blog-publish.php
+rem  Version is auto-read from ai-auto-blog-publish.php
 rem  The zip is a FULL BUNDLE: WP plugin (PHP) + Python backend.
 rem  Secrets (data/ db & tokens, config.yaml) are EXCLUDED.
 rem  Publish: create a GitHub Release tagged v<ver> and upload
@@ -12,7 +12,7 @@ setlocal
 cd /d "%~dp0.."
 
 rem ---- read plugin version (ABP_VERSION const, 4th single-quoted field) ----
-for /f "tokens=4 delims='" %%v in ('findstr /c:"ABP_VERSION" wp-plugin\ai-auto-blog-publish.php') do set VER=%%v
+for /f "tokens=4 delims='" %%v in ('findstr /c:"ABP_VERSION" ai-auto-blog-publish.php') do set VER=%%v
 if "%VER%"=="" (
   echo [A-Blog] ERROR: cannot read ABP_VERSION, check the plugin main file.
   pause
@@ -28,7 +28,7 @@ rem ---- clean & init ----
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item '%TMP%' -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Path '%DST%' -Force | Out-Null"
 
 rem ---- 1. WP plugin (PHP) ----
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item 'wp-plugin\*' '%DST%\' -Recurse -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item 'ai-auto-blog-publish.php','readme.txt','uninstall.php' '%DST%\' -Force; Copy-Item 'includes','mu-plugins' '%DST%\' -Recurse -Force; New-Item -ItemType Directory -Path '%DST%\assets' -Force | Out-Null; Copy-Item 'assets\css','assets\js' '%DST%\assets\' -Recurse -Force"
 echo [A-Blog] WP plugin copied.
 
 rem ---- 2. Python backend (exclude secrets / caches / live config) ----
