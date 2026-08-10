@@ -512,10 +512,10 @@ class ABP_Toolbox {
 	 *
 	 * @param int    $post_id 文章 ID。
 	 * @param int    $count   评论条数（1-30）。
-	 * @param string $status  评论状态 approved|pending。
+	 * @param string $status  评论状态 approved|pending（默认 approved：AI 评论直接显示，不需人工批准）。
 	 * @return array {"ok", "inserted"?, "comments"?, "error"?}
 	 */
-	public static function generate_comments( $post_id, $count = 5, $status = 'pending' ) {
+	public static function generate_comments( $post_id, $count = 5, $status = 'approved' ) {
 		$post_id = (int) $post_id;
 		$count   = max( 1, min( 30, (int) $count ) );
 		if ( ! get_post( $post_id ) ) {
