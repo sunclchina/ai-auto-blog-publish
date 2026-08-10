@@ -338,7 +338,7 @@ class ABP_REST {
 	public static function handle_toolbox_comments( $request ) {
 		$body   = $request->get_json_params();
 		$count  = is_array( $body ) && ! empty( $body['count'] ) ? intval( $body['count'] ) : 5;
-		$status = is_array( $body ) && ! empty( $body['status'] ) ? sanitize_key( $body['status'] ) : 'pending';
+		$status = is_array( $body ) && ! empty( $body['status'] ) ? sanitize_key( $body['status'] ) : 'approved';
 		if ( is_array( $body ) && ! empty( $body['post_ids'] ) && is_array( $body['post_ids'] ) ) {
 			set_time_limit( 0 );
 			$results = array();
