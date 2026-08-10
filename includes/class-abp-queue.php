@@ -347,7 +347,8 @@ class ABP_Queue {
 			'status'           => 'queued',
 			'topic_candidates' => is_array( $candidates ) && $candidates ? wp_json_encode( $candidates, JSON_UNESCAPED_UNICODE ) : null,
 			'sort_order'       => $next,
-			'publish_at'       => $publish_at ? $publish_at : null,
+			// 计划发布时间：未指定时取创建时间 + 30~120 分钟随机（模拟人工时段），前端列表展示。
+			'publish_at'       => $publish_at ? $publish_at : date( 'Y-m-d H:i:s', strtotime( $now ) + wp_rand( 1800, 7200 ) ),
 			'created_at'       => $now,
 			'updated_at'       => $now,
 		), array( '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s' ) );
@@ -441,6 +442,11 @@ class ABP_Queue {
 			'updated_at' => current_time( 'mysql' ),
 		);
 		$fmt = array( '%s', '%d', '%s' );
+		// 发布时间：转 published 且未记录 → 填实际发布时间（前端列表展示）。
+		if ( 'published' === (string) $status && empty( $row['publish_at'] ) ) {
+			$data['publish_at'] = current_time( 'mysql' );
+			$fmt[] = '%s';
+		}
 		if ( null !== $post_id ) {
 			$data['post_id'] = (int) $post_id;
 			$fmt[] = '%d';
