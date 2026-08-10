@@ -397,9 +397,11 @@
 			}
 			var html = '<table class="widefat striped"><thead><tr><th>栏目</th><th>选题</th><th>状态</th><th>发布时间</th><th>操作</th></tr></thead><tbody>';
 			data.tasks.forEach( function ( t ) {
-				var runnable = ( t.status === 'queued' || t.status === 'failed' );
+				// 执行按钮合并（翁老规则）：重写即「重写并立即完成」，同一任务只保留一个执行按钮。
+				// - queued：立即完成
+				// - published/ready/failed/skipped：重写（重置 queued + run_now，立即重新生成并覆盖原文章）
+				var runnable = ( t.status === 'queued' );
 				var deletable = ( t.status === 'queued' || t.status === 'skipped' );
-				// 重写：published/ready/failed/skipped 均可重写（published → queued+run_now，发布端覆盖原文章）。
 				var rewritable = ( t.status === 'published' || t.status === 'ready' || t.status === 'failed' || t.status === 'skipped' );
 				html += '<tr data-task="' + esc( t.task_id ) + '">' +
 					'<td>' + esc( columnName( t.column_name ) ) + '</td>' +
