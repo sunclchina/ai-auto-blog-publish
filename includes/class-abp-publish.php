@@ -1,0 +1,466 @@
+<?php
+/**
+ * A-Blog 发布执行器
+ *
+ * 职责（总纲 1.2 第 7 步）：REST 层校验通过后，
+ *   wp_insert_post 建文 → 分类（slug 匹配，不存在则创建）→ 标签打标 →
+ *   SEO Meta 描述 → 封面图（base64/URL → 媒体库 → 特色图）→ 草稿/发布/定时。
+ * 5xx/网络类失败由 Python 侧重试，插件侧"尽力而为"，关键节点写 wp_abp_log。
+ *
+ * 青简主题适配（总纲第 7 节）：
+ *   - 正文 HTML 由 Python 侧生成 h2/h3 层级、p、blockquote、pre>code；
+ *     本类以 wp_kses_post 白名单放行（pre/code/h2/h3/blockquote 均在默认白名单内）；
+ *   - 封面 1280×720 WebP 由 Python 侧处理完成，本类只负责上传媒体库并绑定特色图；
+ *   - 关键数据 <strong> 加粗由内容生成侧保证，本类不干预。
+ *
+ * @package AI_Auto_Blog_Publish
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+class ABP_Publish {
+
+	/**
+	 * 分类映射表（对齐博客已有分类，值 = 目标分类名）：
+	 * 股市 / IT / 读书 / 行业。任何别名都归入对应已有分类，绝不产生新分类。
+	 * key 为栏目码或常见别名（小写），value 为博客已定义的分类名。
+	 */
+	private static $category_slug_map = array(
+		'stock'       => '股市',
+		'a-share-review' => '股市',
+		'a股每日复盘' => '股市',
+		'a股复盘'     => '股市',
+		'复盘'        => '股市',
+		'股市'        => '股市',
+		'股票'        => '股市',
+		'tech'        => 'IT',
+		'it技术笔记'  => 'IT',
+		'it技术'      => 'IT',
+		'技术笔记'    => 'IT',
+		'技术'        => 'IT',
+		'it-notes'    => 'IT',
+		'it'          => 'IT',
+		'reading'     => '读书',
+		'book'        => '读书',
+		'reading-classics' => '读书',
+		'读书与国学'  => '读书',
+		'读书'        => '读书',
+		'国学'        => '读书',
+		'书评'        => '读书',
+		'industry'    => '行业',
+		'行业综述'    => '行业',
+		'行业'        => '行业',
+	);
+
+	/**
+	 * 插件自身设置（abp_settings）。
+	 *
+	 * @return array
+	 */
+	private static function get_settings() {
+		$defaults = array(
+			'image_enabled'   => 'on',
+			'publish_enabled' => 'on',
+			'flush_cache'     => 'on',
+			'max_tags'        => 10,
+		);
+		$options  = get_option( 'abp_settings', array() );
+		return wp_parse_args( is_array( $options ) ? $options : array(), $defaults );
+	}
+
+	/**
+	 * 主入口：发布一篇成品文章。
+	 *
+	 * @param array $payload 任务对象（总纲 3.1 契约字段）。
+	 * @return array {ok:bool, post_id:int, permalink:string, error?:string}
+	 */
+	public static function publish( $payload ) {
+		$task_id = isset( $payload['task_id'] ) ? sanitize_text_field( (string) $payload['task_id'] ) : '';
+		$column  = isset( $payload['column'] ) ? sanitize_text_field( (string) $payload['column'] ) : '';
+		$title   = isset( $payload['final_title'] ) ? sanitize_text_field( (string) $payload['final_title'] ) : '';
+		if ( '' === $title && isset( $payload['title'] ) ) {
+			$title = sanitize_text_field( (string) $payload['title'] );
+		}
+
+		$response = array(
+			'ok'        => false,
+			'post_id'   => 0,
+			'permalink' => '',
+			'error'     => '',
+		);
+
+		if ( '' === $title ) {
+			$response['error'] = '标题不能为空';
+			abp_log_write( $task_id, $column, 'create', 'fail', '标题为空，拒绝建文' );
+			return $response;
+		}
+
+		$content = isset( $payload['content_html'] ) ? (string) $payload['content_html'] : '';
+		if ( '' === trim( $content ) && isset( $payload['content'] ) ) {
+			$content = (string) $payload['content'];
+		}
+		// 内链占位修正：/?s=关键词 → 站点完整搜索链接（子目录安装安全，如 /wordpress/?s=…）
+		$content = self::fix_internal_links( $content );
+		// 正文以 wp_kses_post 白名单放行（青简主题兼容：h2/h3/p/blockquote/pre/code/strong 均在列）。
+		$content = wp_kses_post( $content );
+
+		$excerpt = isset( $payload['excerpt'] ) ? sanitize_textarea_field( (string) $payload['excerpt'] ) : '';
+		$meta    = isset( $payload['meta_description'] ) ? sanitize_textarea_field( (string) $payload['meta_description'] ) : '';
+
+		// 分类：先按映射 slug 找，再按名字找，最后创建。
+		$category  = isset( $payload['category'] ) ? sanitize_text_field( (string) $payload['category'] ) : '';
+		$cat_id    = self::resolve_category( $category );
+		if ( ! $cat_id ) {
+			// 分类解析失败不阻断建文：无分类文章仍可发布，日志标记。
+			abp_log_write( $task_id, $column, 'category', 'fail', '分类「' . $category . '」解析失败，文章将无分类' );
+		}
+
+		// 标签（智能打标：去重、去 # 号、限长限量）。
+		$tags = isset( $payload['tags'] ) && is_array( $payload['tags'] ) ? $payload['tags'] : array();
+
+		// 状态：发布开关关闭 → 一律存草稿（总纲 4「关闭则仅存草稿」）。
+		$settings       = self::get_settings();
+		$requested_status = isset( $payload['status'] ) ? (string) $payload['status'] : 'draft';
+		if ( ! in_array( $requested_status, array( 'draft', 'publish', 'future' ), true ) ) {
+			$requested_status = 'draft';
+		}
+		if ( 'off' === $settings['publish_enabled'] ) {
+			$requested_status = 'draft';
+		}
+
+		$postarr = array(
+			'post_title'   => $title,
+			'post_content' => $content,
+			'post_excerpt' => $excerpt,
+			'post_status'  => $requested_status,
+			'post_type'    => 'post',
+			'post_author'  => self::resolve_author(),
+		);
+		if ( $cat_id ) {
+			$postarr['post_category'] = array( $cat_id );
+		}
+
+		// 定时发布：status=future 且带 publish_date（ISO8601）→ 转 WP 本地时间。
+		if ( 'future' === $requested_status && ! empty( $payload['publish_date'] ) ) {
+			$ts = strtotime( (string) $payload['publish_date'] );
+			if ( $ts && $ts > 0 ) {
+				$postarr['post_date']     = date( 'Y-m-d H:i:s', $ts );
+				$postarr['post_date_gmt'] = get_gmt_from_date( $postarr['post_date'] );
+			}
+		}
+
+		// 建文。
+		abp_log_write( $task_id, $column, 'create', 'ok', '开始建文：' . $title );
+		$post_id = wp_insert_post( $postarr, true );
+		if ( is_wp_error( $post_id ) ) {
+			$response['error'] = '建文失败：' . $post_id->get_error_message();
+			abp_log_write( $task_id, $column, 'create', 'fail', $response['error'] );
+			return $response;
+		}
+		$post_id = (int) $post_id;
+
+		// 标签。
+		if ( ! empty( $tags ) ) {
+			$clean_tags = self::sanitize_tags( $tags, (int) $settings['max_tags'] );
+			if ( ! empty( $clean_tags ) ) {
+				wp_set_post_tags( $post_id, $clean_tags );
+			}
+		}
+
+		// SEO Meta 描述：有 Yoast 用 _yoast_wpseo_metadesc，有 RankMath 用 rank_math_description，
+		// 否则用通用 _abp_meta_description（可被 SEO 插件/主题识别，注释说明适配策略）。
+		if ( '' !== $meta ) {
+			if ( defined( 'WPSEO_VERSION' ) ) {
+				update_post_meta( $post_id, '_yoast_wpseo_metadesc', $meta );
+			} elseif ( defined( 'RANK_MATH_VERSION' ) || class_exists( 'RankMath' ) ) {
+				update_post_meta( $post_id, 'rank_math_description', $meta );
+			} else {
+				update_post_meta( $post_id, '_abp_meta_description', $meta );
+			}
+		}
+
+		// 封面图（配图开关关闭则跳过）。
+		$image_ok = true;
+		if ( 'on' === $settings['image_enabled'] && ! empty( $payload['featured_image'] ) ) {
+			$att_id   = self::attach_featured_image( $post_id, $title, $payload['featured_image'] );
+			$image_ok = ( false !== $att_id );
+			if ( false !== $att_id ) {
+				set_post_thumbnail( $post_id, $att_id );
+			}
+		}
+
+		// 指纹入库（查重体系：建文成功即登记，后续 /check 与发布前查重可命中）。
+		$plain = wp_strip_all_tags( $content );
+		abp_fingerprint_save( $post_id, abp_simhash( $plain ), $title );
+
+		// 缓存刷新钩子（总纲 7 适配缓存插件：预留钩子，可按设置执行）。
+		if ( 'on' === $settings['flush_cache'] ) {
+			self::flush_cache( $post_id );
+		}
+		// 通用钩子：供其他插件/主题扩展（如推送 CDN purge）。
+		do_action( 'abp_after_publish', $post_id, $payload );
+
+		$response['ok']        = true;
+		$response['post_id']   = $post_id;
+		$response['permalink'] = get_permalink( $post_id );
+
+		$img_note = $image_ok ? '' : '（配图失败，详见日志）';
+		abp_log_write( $task_id, $column, 'publish', 'ok', '发布完成：' . $response['permalink'] . $img_note );
+
+		return $response;
+	}
+
+	/**
+	 * 解析分类：映射 slug → 按 slug 找 → 按名字找 → 创建。
+	 *
+	 * @param string $category 分类名（如「A股每日复盘」）。
+	 * @return int 分类 term_id，0 表示失败。
+	 */
+	private static function fix_internal_links( $content ) {
+		if ( ! $content || false === strpos( $content, '/?s=' ) ) {
+			return $content;
+		}
+		return preg_replace_callback(
+			'/href=\s*["\']\/?\?s=([^"\'\s]+)["\']/',
+			function ( $m ) {
+				$kw  = urldecode( $m[1] );
+				$url = home_url( '/?s=' . rawurlencode( $kw ) );
+				return 'href="' . esc_url( $url ) . '"';
+			},
+			$content
+		);
+	}
+
+	private static function resolve_category( $category ) {
+		$category = trim( (string) $category );
+		if ( '' === $category ) {
+			return 0;
+		}
+
+		// ① 映射表 → 目标分类名（对齐博客已有分类）。
+		$key = mb_strtolower( $category, 'UTF-8' );
+		if ( isset( self::$category_slug_map[ $key ] ) ) {
+			$target = self::$category_slug_map[ $key ];
+			// 按目标分类名匹配。
+			$term = get_term_by( 'name', $target, 'category' );
+			if ( $term && ! is_wp_error( $term ) ) {
+				return (int) $term->term_id;
+			}
+			// 按目标 slug 匹配（英文 slug，如 it / a-share-review）。
+			$term = get_term_by( 'slug', sanitize_title( $target ), 'category' );
+			if ( $term && ! is_wp_error( $term ) ) {
+				return (int) $term->term_id;
+			}
+			// 目标分类不存在（被删除）：回退默认分类，不创建新分类。
+			return (int) get_option( 'default_category', 1 );
+		}
+
+		// ② 无映射：仅按名字匹配已有分类，绝不创建新分类。
+		$term = get_term_by( 'name', $category, 'category' );
+		if ( $term && ! is_wp_error( $term ) ) {
+			return (int) $term->term_id;
+		}
+		return (int) get_option( 'default_category', 1 );
+	}
+
+	/**
+	 * 标签清洗：去 # 号、trim、去重、限长（50 字符）、限量。
+	 *
+	 * @param array $tags     原始标签数组。
+	 * @param int   $max_tags 上限数量。
+	 * @return array 清洗后的标签数组。
+	 */
+	private static function sanitize_tags( $tags, $max_tags = 10 ) {
+		$clean = array();
+		foreach ( (array) $tags as $tag ) {
+			$tag = sanitize_text_field( (string) $tag );
+			$tag = ltrim( $tag, '#' );
+			$tag = trim( $tag );
+			if ( '' === $tag ) {
+				continue;
+			}
+			$tag = function_exists( 'mb_substr' ) ? mb_substr( $tag, 0, 50, 'UTF-8' ) : substr( $tag, 0, 50 );
+			if ( ! in_array( $tag, $clean, true ) ) {
+				$clean[] = $tag;
+			}
+			if ( count( $clean ) >= $max_tags ) {
+				break;
+			}
+		}
+		return $clean;
+	}
+
+	/**
+	 * 解析发布作者：默认用站点管理员，避免以当前（可能是 CLI/系统）身份建文。
+	 *
+	 * @return int
+	 */
+	private static function resolve_author() {
+		$admins = get_users(
+			array(
+				'role'    => 'administrator',
+				'number'  => 1,
+				'orderby' => 'ID',
+				'order'   => 'ASC',
+				'fields'  => 'ID',
+			)
+		);
+		if ( ! empty( $admins ) ) {
+			return (int) $admins[0];
+		}
+		return (int) get_current_user_id();
+	}
+
+	/**
+	 * 封面图：base64 data URI 或 http(s) URL → 媒体库附件 → 返回附件 ID。
+	 *
+	 * 依赖 WP 媒体函数：media_handle_sideload（wp-admin/includes/media.php, file.php, image.php）。
+	 * 失败不抛异常，返回 false 并写日志；发布流程继续（无图发布）。
+	 *
+	 * @param int    $post_id 文章 ID（媒体归属）。
+	 * @param string $title   文章标题（用于生成文件名）。
+	 * @param string $image   base64 data URI 或 URL。
+	 * @return int|false 附件 ID 或 false。
+	 */
+	public static function attach_featured_image( $post_id, $title, $image ) {
+		$image = trim( (string) $image );
+		if ( '' === $image ) {
+			return false;
+		}
+
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+
+		$tmp_file = '';
+		$name     = '';
+
+		// ① base64 data URI：data:image/webp;base64,xxxx
+		if ( 0 === strpos( $image, 'data:' ) && false !== strpos( $image, ';base64,' ) ) {
+			$parts  = explode( ',', $image, 2 );
+			$header = $parts[0]; // data:image/webp;base64
+			$b64    = isset( $parts[1] ) ? $parts[1] : '';
+			$mime   = '';
+			if ( preg_match( '#^data:([a-z0-9/+.\-]+);#i', $header, $mm ) ) {
+				$mime = strtolower( $mm[1] );
+			}
+			$ext      = self::mime_to_ext( $mime );
+			$bin_data = base64_decode( $b64, true );
+			if ( false === $bin_data || '' === $bin_data ) {
+				abp_log_write( '', '', 'image', 'fail', 'base64 图片解码失败' );
+				return false;
+			}
+			$tmp_file = self::make_tmp_file( $bin_data );
+			$name     = sanitize_file_name( ( '' !== $title ? sanitize_title( $title ) : 'featured' ) . '.' . $ext );
+		} else {
+			// ② http(s) URL：download_url 拉取到临时文件（失败回退原 URL 名）。
+			$url = esc_url_raw( $image );
+			if ( '' === $url || ! preg_match( '#^https?://#i', $url ) ) {
+				abp_log_write( '', '', 'image', 'fail', '不支持的图片来源：' . substr( $image, 0, 80 ) );
+				return false;
+			}
+			$tmp = download_url( $url, 30 );
+			if ( is_wp_error( $tmp ) ) {
+				abp_log_write( '', '', 'image', 'fail', '图片下载失败：' . $tmp->get_error_message() );
+				return false;
+			}
+			$ext      = strtolower( pathinfo( wp_parse_url( $url, PHP_URL_PATH ) ? wp_parse_url( $url, PHP_URL_PATH ) : '', PATHINFO_EXTENSION ) );
+			$tmp_file = $tmp;
+			$name     = sanitize_file_name( ( '' !== $title ? sanitize_title( $title ) : 'featured' ) . ( $ext ? '.' . $ext : '.webp' ) );
+		}
+
+		if ( ! $tmp_file || ! file_exists( $tmp_file ) ) {
+			abp_log_write( '', '', 'image', 'fail', '临时图片文件不可用' );
+			return false;
+		}
+
+		$file_array = array(
+			'name'     => $name,
+			'tmp_name' => $tmp_file,
+		);
+
+		$att_id = media_handle_sideload( $file_array, $post_id, $title );
+		// 清理临时文件（media_handle_sideload 成功后已移动文件，残留则删除）。
+		if ( file_exists( $tmp_file ) ) {
+			@unlink( $tmp_file );
+		}
+
+		if ( is_wp_error( $att_id ) ) {
+			abp_log_write( '', '', 'image', 'fail', '附件入库失败：' . $att_id->get_error_message() );
+			return false;
+		}
+
+		return (int) $att_id;
+	}
+
+	/**
+	 * MIME → 扩展名。
+	 *
+	 * @param string $mime MIME 类型。
+	 * @return string 扩展名（默认 webp）。
+	 */
+	private static function mime_to_ext( $mime ) {
+		$map = array(
+			'image/webp'  => 'webp',
+			'image/jpeg'  => 'jpg',
+			'image/jpg'   => 'jpg',
+			'image/png'   => 'png',
+			'image/gif'   => 'gif',
+			'image/avif'  => 'avif',
+			'image/bmp'   => 'bmp',
+		);
+		return isset( $map[ $mime ] ) ? $map[ $mime ] : 'webp';
+	}
+
+	/**
+	 * 写临时文件（uploads 目录下，前缀 abp-）。
+	 *
+	 * @param string $bin 二进制数据。
+	 * @return string 临时文件绝对路径，失败返回空串。
+	 */
+	private static function make_tmp_file( $bin ) {
+		$upload_dir = wp_upload_dir();
+		if ( ! empty( $upload_dir['error'] ) ) {
+			return '';
+		}
+		$dir = $upload_dir['path'];
+		if ( ! wp_mkdir_p( $dir ) ) {
+			return '';
+		}
+		$file = trailingslashit( $dir ) . 'abp-' . wp_generate_password( 12, false ) . '.tmp';
+		$ok   = file_put_contents( $file, $bin );
+		if ( false === $ok ) {
+			return '';
+		}
+		return $file;
+	}
+
+	/**
+	 * 发布后缓存刷新（可选）：wp_cache_flush + 常见缓存插件清理函数 + 通用钩子。
+	 *
+	 * @param int $post_id 文章 ID。
+	 * @return void
+	 */
+	private static function flush_cache( $post_id ) {
+		// WP 内置对象缓存。
+		if ( function_exists( 'wp_cache_flush' ) ) {
+			wp_cache_flush();
+		}
+		// WP Super Cache / W3TC 等通用清理。
+		if ( function_exists( 'wp_cache_clear_cache' ) ) {
+			wp_cache_clear_cache();
+		}
+		// LiteSpeed Cache。
+		if ( function_exists( 'litespeed_purge_all' ) ) {
+			litespeed_purge_all( 'A-Blog publish' );
+		}
+		// WP Rocket。
+		if ( function_exists( 'rocket_clean_domain' ) ) {
+			rocket_clean_domain();
+		}
+		// 通用钩子：第三方缓存/CDN 插件可挂接。
+		do_action( 'abp_flush_cache', $post_id );
+	}
+}
