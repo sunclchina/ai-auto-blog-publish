@@ -41,6 +41,36 @@ class ABP_Toolbox {
 	}
 
 	/**
+	 * 注册话题文章类型（thread，兼容原星河AI工具箱的数据结构）。
+	 *
+	 * @return void
+	 */
+	public static function register_post_type() {
+		register_post_type(
+			'thread',
+			array(
+				'public'       => true,
+				'label'        => '话题',
+				'labels'       => array(
+					'name'          => '话题',
+					'singular_name' => '话题',
+					'menu_name'     => '话题',
+					'add_new'       => '添加话题',
+					'edit_item'     => '编辑话题',
+					'view_item'     => '查看话题',
+					'search_items'  => '搜索话题',
+					'all_items'     => '全部话题',
+				),
+				'supports'     => array( 'title', 'editor', 'thumbnail', 'comments', 'excerpt' ),
+				'menu_icon'    => 'dashicons-format-chat',
+				'has_archive'  => true,
+				'rewrite'      => array( 'slug' => 'thread' ),
+				'show_in_rest' => true,
+			)
+		);
+	}
+
+	/**
 	 * 统一 AI 调用（OpenAI 兼容）。返回 {"ok": bool, "text"?: str, "error"?: str}。
 	 *
 	 * @param array  $messages  消息数组。

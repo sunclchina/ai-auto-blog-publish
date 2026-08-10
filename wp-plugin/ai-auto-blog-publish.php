@@ -96,6 +96,7 @@ add_action( 'init', 'abp_ensure_tables' );
 /* REST 路由注册（总纲 3.2） */
 add_action( 'rest_api_init', array( 'ABP_REST', 'register_routes' ) );
 add_action( 'init', array( 'ABP_Toolbox', 'register_taxonomy' ) );
+add_action( 'init', array( 'ABP_Toolbox', 'register_post_type' ) );
 
 /* 自动调度：WP-Cron（每日建队列 + 每 5 分钟处理到点/立即完成任务） */
 add_filter( 'cron_schedules', array( 'ABP_Scheduler', 'cron_schedules' ) );
