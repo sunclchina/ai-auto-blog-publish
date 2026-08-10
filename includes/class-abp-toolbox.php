@@ -512,12 +512,17 @@ class ABP_Toolbox {
 	 *
 	 * @param int    $post_id 文章 ID。
 	 * @param int    $count   评论条数（1-30）。
-	 * @param string $status  评论状态 approved|pending（默认 approved：AI 评论直接显示，不需人工批准）。
+	 * @param string $status  评论状态 approved|pending（null=遵循「评论必须经人工批准」设置）。
 	 * @return array {"ok", "inserted"?, "comments"?, "error"?}
 	 */
-	public static function generate_comments( $post_id, $count = 5, $status = 'approved' ) {
+	public static function generate_comments( $post_id, $count = 5, $status = null ) {
 		$post_id = (int) $post_id;
 		$count   = max( 1, min( 30, (int) $count ) );
+		// 状态遵循 WP 设置（翁老规则）：开启「评论必须经人工批准」→ AI 评论也进待审；
+		// 未开启 → 直接通过。显式传 status 时尊重调用方。
+		if ( null === $status ) {
+			$status = get_option( 'comment_moderation' ) ? 'pending' : 'approved';
+		}
 		if ( ! get_post( $post_id ) ) {
 			return array( 'ok' => false, 'error' => '文章不存在' );
 		}
