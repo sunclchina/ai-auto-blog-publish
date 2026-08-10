@@ -470,6 +470,39 @@ class ABP_Queue {
 	}
 
 	/**
+	 * 重写任务：已发布/失败/跳过/待发布任务重置为 queued + run_now，
+	 * 保留原 post_id（发布端据此覆盖更新原文章，而非新建）。
+	 * 用于「复盘错过/内容不满意 → 重写并覆盖当日文章」。
+	 *
+	 * @param string $task_id 任务 ID。
+	 * @return array
+	 */
+	public static function task_rewrite( $task_id ) {
+		global $wpdb;
+		$t = $wpdb->prefix . self::TASKS;
+		$row = self::task_get( $task_id );
+		if ( ! $row ) {
+			return array( 'ok' => false, 'error' => '任务不存在' );
+		}
+		if ( ! in_array( $row['status'], array( 'published', 'failed', 'ready', 'skipped' ), true ) ) {
+			return array( 'ok' => false, 'error' => '任务状态 ' . $row['status'] . ' 不可重写' );
+		}
+		$wpdb->update(
+			$t,
+			array(
+				'status'     => 'queued',
+				'run_now'    => 1,
+				'error'      => null,
+				'updated_at' => current_time( 'mysql' ),
+			),
+			array( 'task_id' => $task_id ),
+			array( '%s', '%d', '%s', '%s' ),
+			array( '%s' )
+		);
+		return array( 'ok' => true, 'async' => true, 'rewrite' => true, 'task' => self::task_get( $task_id ) );
+	}
+
+	/**
 	 * 删除任务（仅 queued/skipped）。
 	 *
 	 * @param string $task_id 任务 ID。
