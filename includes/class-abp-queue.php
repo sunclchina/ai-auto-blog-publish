@@ -369,12 +369,12 @@ class ABP_Queue {
 			// 显式指定日期：按 task_id 前缀过滤（如 20260810-%）。
 			$like = $wpdb->esc_like( str_replace( '-', '', $date ) ) . '%';
 			$rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT * FROM {$t} WHERE task_id LIKE %s ORDER BY sort_order ASC, id ASC", $like
+				"SELECT * FROM {$t} WHERE task_id LIKE %s ORDER BY (publish_at IS NULL OR publish_at = '') ASC, publish_at ASC, id ASC", $like
 			), ARRAY_A );
 		} else {
-			// 未指定日期：列出全部计划任务（翁老需求：列表显示全部，清空也清空全部）。
+			// 未指定日期：列出全部计划任务，按发布时间排序（NULL 排最后，翁老需求）。
 			$rows = $wpdb->get_results(
-				"SELECT * FROM {$t} ORDER BY sort_order ASC, id ASC", ARRAY_A
+				"SELECT * FROM {$t} ORDER BY (publish_at IS NULL OR publish_at = '') ASC, publish_at ASC, id ASC", ARRAY_A
 			);
 		}
 		$tasks = array_map( array( __CLASS__, 'task_view' ), $rows );
