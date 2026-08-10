@@ -221,6 +221,17 @@ class ABP_REST {
 				'permission_callback' => array( __CLASS__, 'check_token' ),
 			)
 		);
+
+		// 重写任务（published → queued + run_now，发布端覆盖原文章）。
+		register_rest_route(
+			ABP_API_NAMESPACE,
+			'/tasks/(?P<task_id>[0-9]{8}-[a-z]+-[0-9]{3})/rewrite',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( __CLASS__, 'handle_task_rewrite' ),
+				'permission_callback' => array( __CLASS__, 'check_token' ),
+			)
+		);
 		register_rest_route(
 			ABP_API_NAMESPACE,
 			'/tasks/(?P<task_id>[0-9]{8}-[a-z]+-[0-9]{3})/status',
@@ -1107,6 +1118,18 @@ class ABP_REST {
 	public static function handle_task_run_now( $request ) {
 		$task_id = ( $request instanceof WP_REST_Request ) ? (string) $request['task_id'] : (string) $request;
 		$r = ABP_Queue::task_request_run( $task_id );
+		if ( ! $r['ok'] ) {
+			return self::error( $r['error'], 400, $task_id, '', 'tasks' );
+		}
+		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+	}
+
+	/**
+	 * POST /tasks/{id}/rewrite — 重写任务（published→queued+run_now，发布端覆盖原文章）。
+	 */
+	public static function handle_task_rewrite( $request ) {
+		$task_id = ( $request instanceof WP_REST_Request ) ? (string) $request['task_id'] : (string) $request;
+		$r = ABP_Queue::task_rewrite( $task_id );
 		if ( ! $r['ok'] ) {
 			return self::error( $r['error'], 400, $task_id, '', 'tasks' );
 		}
