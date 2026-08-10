@@ -357,10 +357,11 @@ class ABP_Settings {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( '权限不足' );
 		}
+		// 翁老需求：列表包含全部文章（不限 30 篇）。后台管理页数据量数百篇，一次返回可接受。
 		$q = get_posts( array(
 			'post_type'      => 'post',
 			'post_status'    => array( 'publish', 'draft', 'future' ),
-			'posts_per_page' => 30,
+			'posts_per_page' => -1,
 			'orderby'        => 'date',
 			'order'          => 'DESC',
 			'no_found_rows'  => true,
