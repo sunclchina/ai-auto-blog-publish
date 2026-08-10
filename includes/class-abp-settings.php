@@ -352,6 +352,7 @@ class ABP_Settings {
 	 * @return void
 	 */
 	public static function ajax_toolbox_posts() {
+		global $wpdb;
 		check_ajax_referer( 'abp_log_refresh' );
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( '权限不足' );
@@ -412,7 +413,12 @@ class ABP_Settings {
 				'post_title'    => mb_substr( $p->post_title, 0, 50 ),
 				'post_date'     => get_the_date( '', $p ),
 				'has_excerpt'   => '' !== trim( (string) $p->post_excerpt ),
-				'comment_count' => (int) get_comments_number( $p->ID ),
+				// 评论数：实时统计已批准评论（get_comments_number 读 posts.comment_count 冗余列，
+				// 导入的旧值严重虚高（如 52/83 条实际 0 条），不能用）。
+				'comment_count' => (int) $wpdb->get_var( $wpdb->prepare(
+					"SELECT COUNT(*) FROM {$wpdb->comments} WHERE comment_post_ID=%d AND comment_approved='1'",
+					(int) $p->ID
+				) ),
 				'has_cover'     => (bool) has_post_thumbnail( $p->ID ),
 				'topics'        => $topics,
 			);
