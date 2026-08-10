@@ -367,6 +367,46 @@ class ABP_Settings {
 		$list = array();
 		foreach ( $q as $p ) {
 			$topics = wp_get_post_terms( $p->ID, 'abp_topic', array( 'fields' => 'names' ) );
+			if ( is_wp_error( $topics ) ) {
+				$topics = array();
+			}
+			// 兼容星河插件（XHTheme AI Toolbox）数据：
+			//  - 摘要：星河存 _xhai_excerpt（生产站 334 篇有），post_excerpt 为空时回退读取
+			//  - 话题：星河存 xhai_thread meta + xhai_postparent（thread 文章），abp_topic 为空时回退
+			if ( '' === trim( (string) $p->post_excerpt ) ) {
+				$xhai = get_post_meta( $p->ID, '_xhai_excerpt', true );
+				if ( is_string( $xhai ) && '' !== trim( $xhai ) ) {
+					$p->post_excerpt = $xhai;
+				}
+			}
+			if ( empty( $topics ) ) {
+				$thread_ids = get_post_meta( $p->ID, 'xhai_thread' );
+				$thread_names = array();
+				foreach ( (array) $thread_ids as $tid ) {
+					$title = get_the_title( (int) $tid );
+					if ( $title ) {
+						$thread_names[] = $title;
+					}
+				}
+				// 反向：xhai_postparent 在 thread 上指向文章 → 查挂到本文的 thread 标题
+				if ( empty( $thread_names ) ) {
+					global $wpdb;
+					$rows = $wpdb->get_col( $wpdb->prepare(
+						"SELECT post_title FROM {$wpdb->posts} p
+						 JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+						 WHERE pm.meta_key='xhai_postparent' AND pm.meta_value=%d
+						 AND p.post_type='thread' AND p.post_status='publish'
+						 ORDER BY p.ID LIMIT 6",
+						(int) $p->ID
+					) );
+					foreach ( (array) $rows as $title ) {
+						if ( $title ) {
+							$thread_names[] = $title;
+						}
+					}
+				}
+				$topics = array_slice( $thread_names, 0, 6 );
+			}
 			$list[] = array(
 				'ID'            => (int) $p->ID,
 				'post_title'    => mb_substr( $p->post_title, 0, 50 ),
@@ -374,7 +414,7 @@ class ABP_Settings {
 				'has_excerpt'   => '' !== trim( (string) $p->post_excerpt ),
 				'comment_count' => (int) get_comments_number( $p->ID ),
 				'has_cover'     => (bool) has_post_thumbnail( $p->ID ),
-				'topics'        => is_wp_error( $topics ) ? array() : $topics,
+				'topics'        => $topics,
 			);
 		}
 		wp_send_json_success( $list );
