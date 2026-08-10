@@ -1002,7 +1002,9 @@ class ABP_REST {
 	 * @return string
 	 */
 	private static function next_task_id( $column ) {
-		$date = gmdate( 'Ymd', current_time( 'timestamp' ) + (int) ( get_option( 'gmt_offset' ) * HOUR_IN_SECONDS ) );
+		// 时区修复（与 task_list_by_date 同源）：直接用本地日期，否则任务 ID 落到「明天」，
+		// 列表按今天查不到 → 「列入计划」后今日任务列表无变化。
+		$date = current_time( 'Ymd' );
 		$like = $wpdb_prefix_like = $date . '-' . $column . '-%';
 		global $wpdb;
 		$t = $wpdb->prefix . ABP_Queue::TASKS;
