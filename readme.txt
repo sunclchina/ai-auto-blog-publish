@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.30
+Stable tag: 1.5.42
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -70,6 +70,47 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.42 =
+* 工具箱列表显示全部文章（不限 30 篇）
+
+= 1.5.41 =
+* AI 评论状态遵循「评论必须经人工批准」设置（开启则进审批，关闭则直接显示）
+
+= 1.5.40 =
+* AI 评论默认直接通过（无需人工批准）
+
+= 1.5.39 =
+* 工具箱评论数实时统计（修复导入虚高计数）
+
+= 1.5.38 =
+* 工具箱兼容星河字段：摘要 `_xhai_excerpt`、话题 `xhai_thread`/`xhai_postparent`
+
+= 1.5.37 =
+* 计划任务列表按发布时间排序
+
+= 1.5.36 =
+* 重写按钮合并：重写即「重写并立即完成」
+
+= 1.5.35 =
+* 计划任务列表显示发布时间（计划/实际）
+
+= 1.5.34 =
+* 计划任务列表显示全部任务；清空=清空全部
+
+= 1.5.33 =
+* 修复 next_task_id 时区（列入计划后任务列表可见）
+
+= 1.5.32 =
+* 新增任务「重写」：published 任务重置排队，发布端覆盖原文章（post_id）
+
+= 1.5.31 =
+* 修复任务列表时区（current_time 本地日期）
+
+= 1.5.30 =
+* thread 文章类型注册、BOM 清理、目录整理
+
+
 
 = 1.5.30 =
 * 分类归并：发布分类解析重写——industry/it-notes/IT技术笔记 等别名一律归入博客已有分类（行业/IT/股市/读书），匹配不到回退默认分类，绝不创建新分类
