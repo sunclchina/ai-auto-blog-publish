@@ -1,4 +1,4 @@
-# A-Blog · AI 全自动博客 WordPress 插件
+﻿# A-Blog · AI 全自动博客 WordPress 插件
 
 > 装进 WordPress 就能**全自动日更**的 AI 博客系统：自动选题 → AI 写作 → 自动配图 → 定时发布，无人值守。
 
@@ -40,7 +40,7 @@ A-Blog 是一个**自足的功能插件**：数据、调度、素材、生成全
 
 ## 安装
 
-1. 后台「插件 → 安装插件 → 上传插件」上传 `ai-auto-blog-publish-v1.5.28.zip`，激活
+1. 后台「插件 → 安装插件 → 上传插件」上传 `ai-auto-blog-publish-v1.5.29.zip`，激活
 2. 激活即自动建表、注册调度，无需额外操作
 3. 「AI 自动博客」设置页按需配置：
    - **AI 模型**（默认 deepseek-chat）与 DeepSeek API Key（或复用青简主题密钥）
