@@ -338,7 +338,8 @@ class ABP_REST {
 	public static function handle_toolbox_comments( $request ) {
 		$body   = $request->get_json_params();
 		$count  = is_array( $body ) && ! empty( $body['count'] ) ? intval( $body['count'] ) : 5;
-		$status = is_array( $body ) && ! empty( $body['status'] ) ? sanitize_key( $body['status'] ) : 'approved';
+		// 状态遵循「评论必须经人工批准」设置（翁老规则：开启则 AI 评论也进待审）。
+		$status = is_array( $body ) && ! empty( $body['status'] ) ? sanitize_key( $body['status'] ) : null;
 		if ( is_array( $body ) && ! empty( $body['post_ids'] ) && is_array( $body['post_ids'] ) ) {
 			set_time_limit( 0 );
 			$results = array();
