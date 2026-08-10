@@ -603,12 +603,12 @@ class ABP_Settings {
 
 			<!-- ④.7 今日计划任务（删除 / 立即完成 / 清空） -->
 			<div class="abp-card" id="abp-plan-card">
-				<h2>今日计划任务
+				<h2>计划任务
 					<button type="button" class="button button-small" id="abp-refresh-plan">刷新</button>
 					<button type="button" class="button button-small" id="abp-plan-clear">清空计划</button>
 				</h2>
-				<p class="description">每日调度从备用池按序取题生成；单条可立即完成/删除，也可一键清空（清空仅删排队与跳过，已发布保留）。「立即完成」将任务置为优先执行，由生成引擎拉取后生成发布。</p>
-				<div id="abp-plan-container"><p class="description">点击「刷新」加载今日计划…</p></div>
+				<p class="description">全部计划任务列表（含已发布/失败/跳过）；单条可立即完成/重写/删除，也可一键清空全部任务。「立即完成」将任务置为优先执行，由生成引擎拉取后生成发布。</p>
+				<div id="abp-plan-container"><p class="description">点击「刷新」加载全部计划任务…</p></div>
 			</div>
 
 			<!-- ④.8 AI 工具箱（摘要 / 评论 / 热门话题，参照星河AI工具箱形态） -->

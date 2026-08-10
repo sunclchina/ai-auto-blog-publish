@@ -392,7 +392,7 @@
 
 		var renderPlan = function ( data ) {
 			if ( ! data || ! data.tasks || ! data.tasks.length ) {
-				planBox.innerHTML = '<p class="description">今日暂无计划任务。可到上方「备用选题池」点「列入计划」，或等每日 08:00 自动取题。</p>';
+				planBox.innerHTML = '<p class="description">暂无计划任务。可到上方「备用选题池」点「列入计划」，或等每日调度自动取题。</p>';
 				return;
 			}
 			var html = '<table class="widefat striped"><thead><tr><th>栏目</th><th>选题</th><th>状态</th><th>发布时间</th><th>操作</th></tr></thead><tbody>';
@@ -467,7 +467,7 @@
 
 		if ( planClearBtn ) {
 			planClearBtn.addEventListener( 'click', function () {
-				if ( ! window.confirm( '确定清空今日计划任务（排队与跳过的）？已发布文章保留。' ) ) { return; }
+				if ( ! window.confirm( '确定清空全部计划任务吗？此操作会删除所有任务记录（含已发布/失败），不可恢复。' ) ) { return; }
 				planClearBtn.disabled = true;
 				fetch( planRest + '/clear', {
 					method: 'POST', headers: headers(), credentials: 'same-origin'
