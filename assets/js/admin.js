@@ -405,7 +405,7 @@
 					'<td>' + esc( columnName( t.column_name ) ) + '</td>' +
 					'<td>' + esc( t.topic || '（未定题）' ) + '</td>' +
 					'<td>' + esc( planStatusLabel( t.status ) ) + '</td>' +
-					'<td>' + esc( ( t.publish_date || '' ).replace( 'T', ' ' ).slice( 0, 16 ) ) + '</td>' +
+					'<td>' + esc( ( t.publish_at || t.publish_date || '' ).replace( 'T', ' ' ).slice( 0, 16 ) || '—' ) + '</td>' +
 					'<td>' +
 					( runnable ? '<button type="button" class="button button-small abp-plan-run" data-task="' + esc( t.task_id ) + '" title="立即生成并发布，不等定时">立即完成</button> ' : '' ) +
 					( rewritable ? '<button type="button" class="button button-small abp-plan-rewrite" data-task="' + esc( t.task_id ) + '" title="重写并发布：重新生成内容，若已发布则覆盖原文章（含当日复盘）">重写</button> ' : '' ) +
