@@ -383,6 +383,10 @@ def publish_due_tasks(now: Optional[datetime.datetime] = None) -> List[dict]:
             "publish_date": row["publish_date"],
             "source": {"model": row["model"], "prompt_version": "v1.0"},
         }
+        # 重写覆盖：任务带 post_id（已发布过）→ 传给插件更新原文章（保留 ID，覆盖内容），
+        # 复盘错过/内容不满意时重写不会产生重复文章。
+        if row.get("post_id"):
+            payload["post_id"] = int(row["post_id"])
         try:
             result = wp_rest.publish(payload)
         except wp_rest.PublishError as e:
@@ -407,8 +411,9 @@ def publish_due_tasks(now: Optional[datetime.datetime] = None) -> List[dict]:
         post_id = result.get("post_id")
         published_at = db.now_iso()
         transition(task_id, "published")
-        db.execute("UPDATE tasks SET published_at=?, error=NULL WHERE task_id=?",
-                   (published_at, task_id))
+        # 记录 post_id 到任务（重写覆盖用）：已发布任务的 post_id 供「重写」时更新原文章。
+        db.execute("UPDATE tasks SET published_at=?, post_id=?, error=NULL WHERE task_id=?",
+                   (published_at, post_id if post_id else None, task_id))
         # 指纹入库（防重复体系）
         if row.get("content"):
             try:

@@ -78,6 +78,8 @@ class ABP_Publish {
 	 */
 	public static function publish( $payload ) {
 		$task_id = isset( $payload['task_id'] ) ? sanitize_text_field( (string) $payload['task_id'] ) : '';
+		// 重写覆盖：payload 带 post_id 时更新原文章（保留 ID），否则新建。
+		$rewrite_post_id = isset( $payload['post_id'] ) ? (int) $payload['post_id'] : 0;
 		$column  = isset( $payload['column'] ) ? sanitize_text_field( (string) $payload['column'] ) : '';
 		$title   = isset( $payload['final_title'] ) ? sanitize_text_field( (string) $payload['final_title'] ) : '';
 		if ( '' === $title && isset( $payload['title'] ) ) {
@@ -151,15 +153,26 @@ class ABP_Publish {
 			}
 		}
 
-		// 建文。
-		abp_log_write( $task_id, $column, 'create', 'ok', '开始建文：' . $title );
-		$post_id = wp_insert_post( $postarr, true );
-		if ( is_wp_error( $post_id ) ) {
-			$response['error'] = '建文失败：' . $post_id->get_error_message();
-			abp_log_write( $task_id, $column, 'create', 'fail', $response['error'] );
-			return $response;
+		// 建文（重写时覆盖更新原文章，保留 post_id）。
+		abp_log_write( $task_id, $column, 'create', 'ok', $rewrite_post_id ? '重写覆盖文章 #' . $rewrite_post_id . '：' . $title : '开始建文：' . $title );
+		if ( $rewrite_post_id ) {
+			$postarr['ID'] = $rewrite_post_id;
+			$upd = wp_update_post( $postarr, true );
+			if ( is_wp_error( $upd ) ) {
+				$response['error'] = '重写更新失败：' . $upd->get_error_message();
+				abp_log_write( $task_id, $column, 'create', 'fail', $response['error'] );
+				return $response;
+			}
+			$post_id = $rewrite_post_id;
+		} else {
+			$post_id = wp_insert_post( $postarr, true );
+			if ( is_wp_error( $post_id ) ) {
+				$response['error'] = '建文失败：' . $post_id->get_error_message();
+				abp_log_write( $task_id, $column, 'create', 'fail', $response['error'] );
+				return $response;
+			}
+			$post_id = (int) $post_id;
 		}
-		$post_id = (int) $post_id;
 
 		// 标签。
 		if ( ! empty( $tags ) ) {
