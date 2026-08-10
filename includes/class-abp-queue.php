@@ -364,7 +364,10 @@ class ABP_Queue {
 	public static function task_list_by_date( $date = null ) {
 		global $wpdb;
 		$t = $wpdb->prefix . self::TASKS;
-		$date = $date ? $date : gmdate( 'Y-m-d', current_time( 'timestamp' ) + (int) ( get_option( 'gmt_offset' ) * HOUR_IN_SECONDS ) );
+		// 时区修复：current_time('timestamp') 已是本地时间戳，再 +gmt_offset 会多偏 8h
+		// （本地 21:51 → 变成次日凌晨 → 后台默认查「明天」任务 → 任务/已完成全空）。
+		// 直接用 WP 本地日期格式。
+		$date = $date ? $date : current_time( 'Y-m-d' );
 		$like = $wpdb->esc_like( str_replace( '-', '', $date ) ) . '%';
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT * FROM {$t} WHERE task_id LIKE %s ORDER BY sort_order ASC, id ASC", $like
