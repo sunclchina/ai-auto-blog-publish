@@ -3,7 +3,7 @@
  * Plugin Name: AI自动博客 A-Blog
  * Plugin URI:  https://sunclnas.cn/
  * Description: AI 全自动博客内容生产与发布插件（A-Blog）。接收 Python 伴生服务产出的成品文章，经 SimHash 指纹查重后自动建文、分类、打标、配图并发布；自动探测站点模型配置（青简主题 → 其他插件 → 插件自身）。配套 REST API：/wp-json/ai-auto-blog/v1/*。
- * Version:     1.5.28
+ * Version:     1.5.29
  * Author:      A-Blog Team
  * Author URI:  https://sunclnas.cn/
  * License:     GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /* 常量定义 */
-define( 'ABP_VERSION', '1.5.28' );
+define( 'ABP_VERSION', '1.5.29' );
 define( 'ABP_PLUGIN_FILE', __FILE__ );
 define( 'ABP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ABP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -96,6 +96,7 @@ add_action( 'init', 'abp_ensure_tables' );
 /* REST 路由注册（总纲 3.2） */
 add_action( 'rest_api_init', array( 'ABP_REST', 'register_routes' ) );
 add_action( 'init', array( 'ABP_Toolbox', 'register_taxonomy' ) );
+add_action( 'init', array( 'ABP_Toolbox', 'register_post_type' ) );
 
 /* 自动调度：WP-Cron（每日建队列 + 每 5 分钟处理到点/立即完成任务） */
 add_filter( 'cron_schedules', array( 'ABP_Scheduler', 'cron_schedules' ) );
