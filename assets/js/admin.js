@@ -399,6 +399,8 @@
 			data.tasks.forEach( function ( t ) {
 				var runnable = ( t.status === 'queued' || t.status === 'failed' );
 				var deletable = ( t.status === 'queued' || t.status === 'skipped' );
+				// 重写：published/ready/failed/skipped 均可重写（published → queued+run_now，发布端覆盖原文章）。
+				var rewritable = ( t.status === 'published' || t.status === 'ready' || t.status === 'failed' || t.status === 'skipped' );
 				html += '<tr data-task="' + esc( t.task_id ) + '">' +
 					'<td>' + esc( columnName( t.column_name ) ) + '</td>' +
 					'<td>' + esc( t.topic || '（未定题）' ) + '</td>' +
@@ -406,6 +408,7 @@
 					'<td>' + esc( ( t.publish_date || '' ).replace( 'T', ' ' ).slice( 0, 16 ) ) + '</td>' +
 					'<td>' +
 					( runnable ? '<button type="button" class="button button-small abp-plan-run" data-task="' + esc( t.task_id ) + '" title="立即生成并发布，不等定时">立即完成</button> ' : '' ) +
+					( rewritable ? '<button type="button" class="button button-small abp-plan-rewrite" data-task="' + esc( t.task_id ) + '" title="重写并发布：重新生成内容，若已发布则覆盖原文章（含当日复盘）">重写</button> ' : '' ) +
 					( deletable ? '<button type="button" class="button button-small abp-plan-del" data-task="' + esc( t.task_id ) + '">删除</button>' : '' ) +
 					'</td></tr>';
 			} );
@@ -427,6 +430,39 @@
 		if ( planRefreshBtn && planBox ) {
 			planRefreshBtn.addEventListener( 'click', loadPlan );
 			loadPlan();
+		}
+
+		/* ---------- 任务重写（published→queued+run_now，覆盖原文章） ---------- */
+		if ( planBox ) {
+			planBox.addEventListener( 'click', function ( e ) {
+				var btn = e.target.closest( '.abp-plan-rewrite' );
+				if ( ! btn ) { return; }
+				var taskId = btn.getAttribute( 'data-task' ) || '';
+				if ( ! taskId ) { return; }
+				if ( ! window.confirm( '确定重写任务 ' + taskId + ' 吗？\n将重新生成内容并发布；若该任务已发布过（含当日复盘），会覆盖原文章。' ) ) { return; }
+				btn.disabled = true;
+				var oldText = btn.textContent;
+				btn.textContent = '重写中...';
+				fetch( planRest + '/' + encodeURIComponent( taskId ) + '/rewrite', {
+					method: 'POST', headers: headers(), credentials: 'same-origin'
+				} )
+					.then( function ( r ) { return r.json().catch( function () { return { ok: false, error: '响应解析失败 HTTP ' + r.status }; } ); } )
+					.then( function ( d ) {
+						if ( d && d.ok ) {
+							alert( '✅ 已提交重写：' + taskId + '（生成引擎将重新生成并覆盖发布）' );
+							loadPlan();
+						} else {
+							alert( '重写失败：' + ( ( d && d.error ) || ( d && ( d.message || d.detail ) ) || '未知错误' ) );
+							btn.disabled = false;
+							btn.textContent = oldText;
+						}
+					} )
+					.catch( function ( e ) {
+						alert( '网络错误：' + ( e && e.message ? e.message : e ) );
+						btn.disabled = false;
+						btn.textContent = oldText;
+					} );
+			} );
 		}
 
 		if ( planClearBtn ) {
