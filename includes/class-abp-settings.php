@@ -41,6 +41,12 @@ class ABP_Settings {
 			'flush_cache'           => 'on',
 			'daily_limit'           => 3,      // 每日发文篇数 1-10。
 			'daily_token_limit'     => 200000, // 每日 Token 额度。
+			// 备用选题池每日新增数（按栏目，0=不新增；每日建队列时自动从素材入池）。
+			'pool_daily_stock'    => 0,
+			'pool_daily_tech'     => 3,
+			'pool_daily_reading'  => 3,
+			'pool_daily_book'     => 2,
+			'pool_daily_industry' => 2,
 			'publish_window'        => '09:00-21:00', // 模拟人工时段。
 			'deepseek_api_key'      => '',
 			'models'                => array(
@@ -199,6 +205,12 @@ class ABP_Settings {
 		// 每日发文篇数：1-10 收敛。
 		$clean['daily_limit'] = isset( $input['daily_limit'] ) ? (int) $input['daily_limit'] : 3;
 		$clean['daily_limit'] = max( 1, min( 10, $clean['daily_limit'] ) );
+
+		// 备用选题池每日新增数（按栏目）：0-10 收敛，0=该栏目不自动入池。
+		foreach ( array( 'stock', 'tech', 'reading', 'book', 'industry' ) as $pool_col ) {
+			$clean[ 'pool_daily_' . $pool_col ] = isset( $input[ 'pool_daily_' . $pool_col ] ) ? (int) $input[ 'pool_daily_' . $pool_col ] : 0;
+			$clean[ 'pool_daily_' . $pool_col ] = max( 0, min( 10, $clean[ 'pool_daily_' . $pool_col ] ) );
+		}
 
 		// 每日 Token 额度：非负整数。
 		$clean['daily_token_limit'] = isset( $input['daily_token_limit'] ) ? (int) $input['daily_token_limit'] : 200000;
@@ -512,7 +524,28 @@ class ABP_Settings {
 							<tr>
 								<th scope="row"><label for="abp_daily_limit">每日发文篇数</label></th>
 								<td>
-									<input type="number" id="abp_daily_limit" name="abp_settings[daily_limit]" min="1" max="10" value="<?php echo esc_attr( $settings['daily_limit'] ); ?>" class="small-text" /> <span class="description">1-10 篇（默认 3）</span>
+									<input type="number" id="abp_daily_limit" name="abp_settings[daily_limit]" min="1" max="10" value="<?php echo esc_attr( $settings['daily_limit'] ); ?>" class="small-text" /> <span class="description">1-10 篇（默认 3），只管每日列入计划的任务数量；未发文章不补发</span>
+								</td>
+							</tr>
+							<tr>
+								<th scope="row">备用选题每日新增数<br /><small>（各栏目每天自动补入选题池的数量，0=不新增）</small></th>
+								<td>
+									<?php
+									$pool_cols = array(
+										'stock'    => '复盘',
+										'tech'     => 'IT技术',
+										'reading'  => '国学',
+										'book'     => '书评',
+										'industry' => '行业分析',
+									);
+									foreach ( $pool_cols as $pool_key => $pool_label ) :
+										?>
+										<p>
+											<label for="abp_pool_daily_<?php echo esc_attr( $pool_key ); ?>"><?php echo esc_html( $pool_label ); ?>：</label>
+											<input type="number" id="abp_pool_daily_<?php echo esc_attr( $pool_key ); ?>" name="abp_settings[pool_daily_<?php echo esc_attr( $pool_key ); ?>]" min="0" max="10" value="<?php echo esc_attr( (int) $settings[ 'pool_daily_' . $pool_key ] ); ?>" class="small-text" />
+										</p>
+									<?php endforeach; ?>
+									<span class="description">每日建队列时自动从内置素材（RSS/诗词/书单/行业概念）取样入池，选题池上限 20 条，去重自动</span>
 								</td>
 							</tr>
 							<tr>

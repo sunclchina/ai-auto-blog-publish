@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.42
+Stable tag: 1.5.47
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -70,6 +70,38 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.47 =
+* 修复股市复盘查重失效（翁老反馈：8月10日复盘出现两篇）：
+  * 根因 1：REST 通道 review_date_duplicate 的正则只匹配 ISO 日期（2026-08-10），
+    匹配不到中文标题「2026年8月10日」，查重形同虚设；且字符类中文需 /u 修饰符
+  * 根因 2：插件侧调度器 ABP_Stock::generate 完全没有复盘日查重
+  * 修复：查重逻辑统一到 ABP_Publish::review_date_duplicate（兼容 ISO/中文/带空格三种日期格式），
+    REST 通道与本地调度通道共用；ABP_Stock::generate 发布前先查该复盘日已有文章 → 删除旧文覆盖重做
+
+= 1.5.46 =
+* 设置页新增「备用选题每日新增数」（按栏目：复盘/IT技术/国学/书评/行业分析，0-10）：
+  每日建队列时自动从内置素材（RSS/诗词/书单/行业概念）取样入池，一天一次、去重自动、池子上限 20
+* 「每日发文篇数」明确只管列入计划的任务数量；移除最近 3 天缺失队列补建补发逻辑（翁老规则：未发文章不补发）
+
+= 1.5.45 =
+* 修复每日发文篇数设置不生效（翁老反馈：设置 daily_limit=2 却一天发十几篇）：
+  * 根因：插件侧调度器 build_daily_queue 写死每天给 5 个栏目各建 1 个任务，从不读 daily_limit；
+    且 catchup_missed 会补建最近 3 天缺失队列，积压任务一次性发完
+  * 修复：每日任务数严格按 daily_limit（1-10）控制，启用栏目内轮转选取（避免固定栏目霸占额度）；
+    栏目开关（column_*_enabled）一并生效；补建同样受限
+
+= 1.5.44 =
+* 摘要策略调整（翁老规则）：移除「正文前 110 字自动截取」兜底——AI 未提供摘要时 post_excerpt 留空，
+  不做硬截取充数；前台由主题兼容层回退星河摘要或直接不显示
+* AI 工具箱列表「有无摘要」已含星河兼容：post_excerpt 为空时回退读 _xhai_excerpt 再判定（v1.5.38 起）
+
+= 1.5.43 =
+* 修复文章摘要不写入（翁老反馈：AI 生成的摘要前台不显示）：
+  * 调度器本地生成路径（tech/reading/book）与 stock/industry 两条生成路径此前只要求 AI 输出标题+正文，
+    从不生成/传递摘要 → post_excerpt 全空。现提示词增加 "excerpt" 字段并解析传递；
+  * ABP_Publish 增加摘要兜底：调用方未提供摘要时从正文自动截取 110 字符（与 Python 侧风格一致），
+    保证前台列表始终有摘要可显示
 
 = 1.5.42 =
 * 工具箱列表显示全部文章（不限 30 篇）

@@ -626,7 +626,7 @@ class ABP_REST {
 		// 查重：复盘栏目只查标题日期（翁老规则：每天内容相似仅数字不同，不查内容）；
 		// 其余栏目 SimHash 指纹查重（汉明距离 < 4 判重）。
 		if ( 'stock' === $column ) {
-			$dedup   = self::review_date_duplicate( $title );
+			$dedup   = ABP_Publish::review_date_duplicate( $title );
 			$channel = 'review-date';
 		} else {
 			$plain   = wp_strip_all_tags( $content );
@@ -859,28 +859,8 @@ class ABP_REST {
 	 * @return array
 	 */
 	private static function review_date_duplicate( $title ) {
-		if ( ! preg_match( '/(\d{4}-\d{2}-\d{2})/', (string) $title, $m ) ) {
-			return array( 'duplicate' => false );
-		}
-		$date = $m[1];
-		global $wpdb;
-		$id = $wpdb->get_var(
-			$wpdb->prepare(
-				"SELECT ID FROM {$wpdb->posts} WHERE post_title LIKE %s AND post_type='post' " .
-				"AND post_status IN ('publish','future','draft') LIMIT 1",
-				'%' . $wpdb->esc_like( $date ) . '%'
-			)
-		);
-		if ( $id ) {
-			return array(
-				'duplicate'       => true,
-				'date'            => $date,
-				'similar_post_id' => (int) $id,
-				'similar_title'   => get_the_title( $id ),
-				'distance'        => 0,
-			);
-		}
-		return array( 'duplicate' => false );
+		// 逻辑已统一迁移至 ABP_Publish::review_date_duplicate（兼容中文日期格式），此处委托。
+		return ABP_Publish::review_date_duplicate( $title );
 	}
 
 	/**

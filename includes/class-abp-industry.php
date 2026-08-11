@@ -43,7 +43,7 @@ class ABP_Industry {
 			'source_note'  => $hits ? 'Tavily 联网搜索（finance/week）' : 'Tavily 未配置或搜索失败，正文以通用框架编写并注明',
 		);
 		$user_msg = "选题：{$topic}\n\n联网素材（JSON）：\n" . wp_json_encode( $material, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
-			. "\n\n请按规范输出 JSON：{\"content_html\":\"完整正文HTML\"}";
+			. "\n\n请按规范输出 JSON：{\"content_html\":\"完整正文HTML\",\"excerpt\":\"80-110字中文摘要\"}";
 
 		$r = ABP_Toolbox::ai_chat(
 			array(
@@ -56,10 +56,12 @@ class ABP_Industry {
 		if ( ! $r['ok'] ) {
 			return array( 'ok' => false, 'error' => 'AI 生成失败：' . $r['error'] );
 		}
-		$html = self::parse_html( $r['text'] );
-		if ( '' === $html ) {
+		$parsed = self::parse_html( $r['text'] );
+		if ( '' === $parsed['html'] ) {
 			return array( 'ok' => false, 'error' => 'AI 输出解析失败' );
 		}
+		$html           = $parsed['html'];
+		$parsed_excerpt = $parsed['excerpt'];
 
 		$title = $topic . '行业：市场全景与景气龙头盘点';
 		$payload = array(
@@ -67,6 +69,7 @@ class ABP_Industry {
 			'column'       => 'industry',
 			'final_title'  => $title,
 			'content_html' => $html,
+			'excerpt'      => $parsed_excerpt,
 			'category'     => '行业',            // 主题已有「行业」分类（翁老：industry 归入行业）
 			'tags'         => array( '行业综述', $topic ),
 			'status'       => 'publish',
@@ -79,10 +82,10 @@ class ABP_Industry {
 	}
 
 	/**
-	 * 从 AI 输出提取正文 HTML（兼容 JSON 包裹）。
+	 * 从 AI 输出提取正文与摘要（兼容 JSON 包裹）。
 	 *
 	 * @param string $text AI 原文。
-	 * @return string
+	 * @return array{html:string, excerpt:string} 摘要缺省时留空（由 ABP_Publish 兜底截取）。
 	 */
 	private static function parse_html( $text ) {
 		$text = trim( (string) $text );
@@ -90,17 +93,24 @@ class ABP_Industry {
 		$text = preg_replace( '/\s*```$/', '', $text );
 		$data = json_decode( $text, true );
 		if ( is_array( $data ) && isset( $data['content_html'] ) ) {
-			return trim( (string) $data['content_html'] );
+			return array(
+				'html'    => trim( (string) $data['content_html'] ),
+				'excerpt' => isset( $data['excerpt'] ) ? trim( (string) $data['excerpt'] ) : '',
+			);
 		}
 		if ( preg_match( '/\{.*\}/s', $text, $m ) ) {
 			$data = json_decode( $m[0], true );
 			if ( is_array( $data ) && isset( $data['content_html'] ) ) {
-				return trim( (string) $data['content_html'] );
+				return array(
+					'html'    => trim( (string) $data['content_html'] ),
+					'excerpt' => isset( $data['excerpt'] ) ? trim( (string) $data['excerpt'] ) : '',
+				);
 			}
 		}
+		// 直接是 HTML 正文（无 JSON 外壳）。
 		if ( false !== strpos( $text, '<' ) && false !== strpos( $text, '>' ) ) {
-			return $text;
+			return array( 'html' => $text, 'excerpt' => '' );
 		}
-		return '';
+		return array( 'html' => '', 'excerpt' => '' );
 	}
 }

@@ -109,6 +109,8 @@ class ABP_Publish {
 		$content = wp_kses_post( $content );
 
 		$excerpt = isset( $payload['excerpt'] ) ? sanitize_textarea_field( (string) $payload['excerpt'] ) : '';
+		// 摘要策略（翁老规则）：只接受 AI 生成/手工填写的摘要；调用方未提供时留空，
+		// 不做「正文前 110 字硬截取」充数（前台由主题兼容层回退星河摘要或显示空）。
 		$meta    = isset( $payload['meta_description'] ) ? sanitize_textarea_field( (string) $payload['meta_description'] ) : '';
 
 		// 分类：先按映射 slug 找，再按名字找，最后创建。
@@ -223,6 +225,47 @@ class ABP_Publish {
 		abp_log_write( $task_id, $column, 'publish', 'ok', '发布完成：' . $response['permalink'] . $img_note );
 
 		return $response;
+	}
+
+	/**
+	 * 复盘日期查重：标题含该复盘日（兼容 ISO「2026-08-10」与中文「2026年8月10日」格式）
+	 * 且状态为 publish/future/draft 的文章即视为已写。
+	 * 翁老规则：已有该复盘日的文章 = 对结果不满意 → 删除旧文覆盖重做。
+	 *
+	 * @param string $title 标题或日期串（如 2026-08-10）。
+	 * @return array{duplicate:bool, date?:string, similar_post_id?:int, similar_title?:string, distance?:int}
+	 */
+	public static function review_date_duplicate( $title ) {
+		if ( ! preg_match( '/(\d{4})\s*[-年]\s*(\d{1,2})\s*[-月]\s*(\d{1,2})/u', (string) $title, $m ) ) {
+			return array( 'duplicate' => false );
+		}
+		$y  = (int) $m[1];
+		$mo = (int) $m[2];
+		$d  = (int) $m[3];
+		$variants = array(
+			sprintf( '%04d-%02d-%02d', $y, $mo, $d ),
+			sprintf( '%04d年%d月%d日', $y, $mo, $d ),
+			sprintf( '%04d年%02d月%02d日', $y, $mo, $d ),
+		);
+		global $wpdb;
+		$likes = array();
+		foreach ( $variants as $v ) {
+			$likes[] = $wpdb->prepare( 'post_title LIKE %s', '%' . $wpdb->esc_like( $v ) . '%' );
+		}
+		$id = $wpdb->get_var(
+			"SELECT ID FROM {$wpdb->posts} WHERE post_type='post' " .
+			"AND post_status IN ('publish','future','draft') AND (" . implode( ' OR ', $likes ) . ') LIMIT 1'
+		);
+		if ( $id ) {
+			return array(
+				'duplicate'       => true,
+				'date'            => $variants[0],
+				'similar_post_id' => (int) $id,
+				'similar_title'   => get_the_title( $id ),
+				'distance'        => 0,
+			);
+		}
+		return array( 'duplicate' => false );
 	}
 
 	/**

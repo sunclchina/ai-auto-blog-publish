@@ -234,6 +234,17 @@ class ABP_Stock {
 		if ( isset( $row['task_id'] ) && preg_match( '/^(\d{4})(\d{2})(\d{2})/', (string) $row['task_id'], $m ) ) {
 			$task_date = $m[1] . '-' . $m[2] . '-' . $m[3];
 		}
+		// 复盘查重（翁老规则）：该复盘日已有文章 = 对结果不满意 → 删除旧文，覆盖重做。
+		// 与 REST 通道一致（兼容中文标题日期格式，如「2026年8月10日」）。
+		$dup_date = $task_date ? $task_date : gmdate( 'Y-m-d', current_time( 'timestamp' ) );
+		$dedup    = ABP_Publish::review_date_duplicate( $dup_date );
+		if ( $dedup['duplicate'] ) {
+			$old_id = (int) $dedup['similar_post_id'];
+			wp_delete_post( $old_id, true );
+			abp_log_write( $row['task_id'], 'stock', 'dedup', 'overwrite',
+				'该复盘日已有文章 ID ' . $old_id . '（' . $dedup['similar_title'] . '），已删除并覆盖重做' );
+		}
+
 		$data = self::collect_data( $task_date ? $task_date : null );
 		$prompts = include ABP_PLUGIN_DIR . 'includes/data-prompts.php';
 		$prompt  = isset( $prompts['stock'] ) ? $prompts['stock'] : '';
@@ -246,7 +257,7 @@ class ABP_Stock {
 			'source_note' => $data['ok'] ? '新浪财经/东财实时采集' : '行情源暂不可用',
 		);
 		$user_msg = "今日采集素材（JSON）：\n" . wp_json_encode( $material, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
-			. "\n\n请按规范输出 JSON：{\"content_html\":\"完整正文HTML\"}";
+			. "\n\n请按规范输出 JSON：{\"content_html\":\"完整正文HTML\",\"excerpt\":\"80-110字中文摘要\"}";
 
 		$r = ABP_Toolbox::ai_chat(
 			array(
@@ -259,10 +270,12 @@ class ABP_Stock {
 		if ( ! $r['ok'] ) {
 			return array( 'ok' => false, 'error' => 'AI 生成失败：' . $r['error'] );
 		}
-		$html = self::parse_html( $r['text'] );
-		if ( '' === $html ) {
+		$parsed = self::parse_html( $r['text'] );
+		if ( '' === $parsed['html'] ) {
 			return array( 'ok' => false, 'error' => 'AI 输出解析失败' );
 		}
+		$html           = $parsed['html'];
+		$parsed_excerpt = $parsed['excerpt'];
 
 		$subtitle = self::make_subtitle( $html );
 		// 标题日期用任务日期（补建的昨日复盘标题写昨日，不写今天）。
@@ -274,6 +287,7 @@ class ABP_Stock {
 			'column'       => 'stock',
 			'final_title'  => $title,
 			'content_html' => $html,
+			'excerpt'      => $parsed_excerpt,
 			'category'     => 'a-share-review',
 			'tags'         => array( 'A股复盘', $date_cn ),
 			'status'       => 'publish',
@@ -286,10 +300,10 @@ class ABP_Stock {
 	}
 
 	/**
-	 * 从 AI 输出提取正文 HTML（兼容 JSON 包裹）。
+	 * 从 AI 输出提取正文与摘要（兼容 JSON 包裹）。
 	 *
 	 * @param string $text AI 原文。
-	 * @return string
+	 * @return array{html:string, excerpt:string} 摘要缺省时留空（由 ABP_Publish 兜底截取）。
 	 */
 	private static function parse_html( $text ) {
 		$text = trim( (string) $text );
@@ -297,19 +311,25 @@ class ABP_Stock {
 		$text = preg_replace( '/\s*```$/', '', $text );
 		$data = json_decode( $text, true );
 		if ( is_array( $data ) && isset( $data['content_html'] ) ) {
-			return trim( (string) $data['content_html'] );
+			return array(
+				'html'    => trim( (string) $data['content_html'] ),
+				'excerpt' => isset( $data['excerpt'] ) ? trim( (string) $data['excerpt'] ) : '',
+			);
 		}
 		if ( preg_match( '/\{.*\}/s', $text, $m ) ) {
 			$data = json_decode( $m[0], true );
 			if ( is_array( $data ) && isset( $data['content_html'] ) ) {
-				return trim( (string) $data['content_html'] );
+				return array(
+					'html'    => trim( (string) $data['content_html'] ),
+					'excerpt' => isset( $data['excerpt'] ) ? trim( (string) $data['excerpt'] ) : '',
+				);
 			}
 		}
 		// 直接是 HTML 正文（无 JSON 外壳）。
 		if ( false !== strpos( $text, '<' ) && false !== strpos( $text, '>' ) ) {
-			return $text;
+			return array( 'html' => $text, 'excerpt' => '' );
 		}
-		return '';
+		return array( 'html' => '', 'excerpt' => '' );
 	}
 
 	/**

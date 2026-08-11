@@ -95,21 +95,49 @@ class ABP_Scheduler {
 		$date_ymd = str_replace( '-', '', $date_str );
 		$ts = strtotime( $date_str );
 
+		// 每日先按设置补充选题池（翁老：备用选题每日新增数，按栏目；一天一次，防重）。
+		self::refill_pool_daily();
+
 		$exist = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t} WHERE task_id LIKE %s", $date_ymd . '%' ) );
 		if ( $exist > 0 ) {
 			return array( 'ok' => true, 'created' => 0, 'note' => $date_str . ' 任务已存在，跳过' );
 		}
 
 		$created = 0;
+		// 每日篇数（翁老规则：daily_limit 设置必须生效，之前写死每栏目 1 篇导致每天 5 篇）+
+		// 栏目开关过滤 + 栏目轮转（避免固定栏目霸占每日额度）。
+		$settings = ABP_Settings::get_settings();
+		$limit    = isset( $settings['daily_limit'] ) ? (int) $settings['daily_limit'] : 3;
+		$limit    = max( 1, min( 10, $limit ) );
+		$all_cols = array( 'stock', 'tech', 'reading', 'book', 'industry' );
+		$on_cols  = array();
+		foreach ( $all_cols as $col ) {
+			$key = 'column_' . $col . '_enabled';
+			if ( 'on' === ( isset( $settings[ $key ] ) ? $settings[ $key ] : 'on' ) ) {
+				$on_cols[] = $col;
+			}
+		}
+		$rotation = (int) get_option( 'abp_scheduler_rotation', 0 );
+		$n_cols   = count( $on_cols );
+		$picked   = array();
+		if ( $n_cols > 0 ) {
+			for ( $i = 0; $i < $limit; $i++ ) {
+				$picked[] = $on_cols[ ( $rotation + $i ) % $n_cols ];
+			}
+			update_option( 'abp_scheduler_rotation', ( $rotation + $limit ) % $n_cols );
+		}
 		// A股复盘：仅交易日选题，题目固定（日期+「A股市场：」+副标题），无需素材库。
-		if ( ABP_Stock::is_trading_day( $ts ) ) {
+		if ( in_array( 'stock', $picked, true ) && ABP_Stock::is_trading_day( $ts ) ) {
 			$task_id = $date_ymd . '-stock-' . sprintf( '%03d', self::column_seq( 'stock', $date_ymd ) );
 			$r = ABP_Queue::task_create( $task_id, 'stock', 'A股每日复盘' );
 			if ( $r['ok'] ) {
 				$created++;
 			}
 		}
-		foreach ( array( 'tech', 'reading', 'book', 'industry' ) as $col ) {
+		foreach ( $picked as $col ) {
+			if ( 'stock' === $col ) {
+				continue; // stock 已在上方处理（非交易日不建）。
+			}
 			$item = self::pick_topic( $col );
 			if ( ! $item ) {
 				continue;
@@ -127,12 +155,38 @@ class ABP_Scheduler {
 	}
 
 	/**
-	 * 错过检测 + 补充执行（每次 process_due 先跑）：
-	 *   1. 诗词语料超 1 天未刷新 → 立即联网刷新；
-	 *   2. 最近 3 天内有应建未建的队列（服务器关机/站点无访问错过）→ 按日期补建，
-	 *      补建的任务随即被 process_due 生成发布（复盘补写，文章补发）。
+	 * 备用选题池每日新增（翁老规则：按设置 pool_daily_<栏目> 自动入池，一天一次）。
+	 * 池子上限 20 条、自动去重；复盘无素材选题（题目固定），设置 0 即可。
 	 *
-	 * @return array{ok:bool, refreshed:bool, caught_up:array}
+	 * @return array{ok:bool, added:int, note?:string}
+	 */
+	public static function refill_pool_daily() {
+		$today = gmdate( 'Y-m-d', current_time( 'timestamp' ) + (int) ( get_option( 'gmt_offset' ) * HOUR_IN_SECONDS ) );
+		if ( get_option( 'abp_pool_refill_date' ) === $today ) {
+			return array( 'ok' => true, 'added' => 0, 'note' => '今日已补，跳过' );
+		}
+		$settings = ABP_Settings::get_settings();
+		$added    = 0;
+		foreach ( array( 'tech', 'reading', 'book', 'industry' ) as $pool_col ) {
+			$n = isset( $settings[ 'pool_daily_' . $pool_col ] ) ? (int) $settings[ 'pool_daily_' . $pool_col ] : 0;
+			if ( $n <= 0 ) {
+				continue;
+			}
+			$r = ABP_Queue::pool_fill( $pool_col, $n );
+			if ( is_array( $r ) && ! empty( $r['added'] ) ) {
+				$added += (int) $r['added'];
+			}
+		}
+		update_option( 'abp_pool_refill_date', $today );
+		return array( 'ok' => true, 'added' => $added );
+	}
+
+	/**
+	 * 错过检测 + 补充执行（每次 process_due 先跑）：
+	 *   诗词语料超 1 天未刷新 → 立即联网刷新。
+	 * 翁老规则：未发文章不补发——不再补建最近 3 天缺失队列（错过了就不补）。
+	 *
+	 * @return array{ok:bool, refreshed:bool}
 	 */
 	public static function catchup_missed() {
 		// 1. 素材刷新补偿。
@@ -144,17 +198,7 @@ class ABP_Scheduler {
 			ABP_Materials::refresh_poems();
 			$refreshed = true;
 		}
-
-		// 2. 最近 3 天补建队列（幂等：已有任务自动跳过）。
-		$caught_up = array();
-		for ( $i = 1; $i <= 3; $i++ ) {
-			$d = gmdate( 'Y-m-d', current_time( 'timestamp' ) + (int) ( get_option( 'gmt_offset' ) * HOUR_IN_SECONDS ) - $i * DAY_IN_SECONDS );
-			$r = self::build_daily_queue( $d );
-			if ( ! empty( $r['created'] ) ) {
-				$caught_up[] = $d . ':' . $r['created'];
-			}
-		}
-		return array( 'ok' => true, 'refreshed' => $refreshed, 'caught_up' => $caught_up );
+		return array( 'ok' => true, 'refreshed' => $refreshed );
 	}
 
 	/**
@@ -337,15 +381,15 @@ class ABP_Scheduler {
 		$prompts = array(
 			'tech'    => array(
 				'system' => '你是资深中文 IT 运维与建站技术作者。写实操教程：步骤清晰、结论先行，涉及命令/配置用 <pre><code> 代码块，不编造不存在的功能。正文 600-1200 字，配 2-4 个小标题（<h2>）。',
-				'user'   => '选题：《%s》。直接输出 JSON（不要多余文字）：{"title":"标题(15-30字)","content_html":"完整正文HTML（含 h2/p/pre/code/ul）"}',
+				'user'   => '选题：《%s》。直接输出 JSON（不要多余文字）：{"title":"标题(15-30字)","content_html":"完整正文HTML（含 h2/p/pre/code/ul）","excerpt":"80-110字中文摘要（去掉AI味，口语自然）"}',
 			),
 			'reading' => array(
 				'system' => '你是古典文学赏析作者，文风雅致。赏析结构：原文、逐句译文、深度赏析、创作背景，结尾一句点睛。正文 600-900 字，配 <h2> 小标题。不编造史实，不确定处写"一说"。',
-				'user'   => '选题：《%s》。直接输出 JSON（不要多余文字）：{"title":"标题","content_html":"完整正文HTML"}',
+				'user'   => '选题：《%s》。直接输出 JSON（不要多余文字）：{"title":"标题","content_html":"完整正文HTML","excerpt":"80-110字中文摘要"}',
 			),
 			'book'    => array(
 				'system' => '你是书评作者。书评结构：书籍简介、核心观点、精彩段落摘引、个人阅读感悟。正文 600-900 字，配 <h2> 小标题，观点明确不剧透过多。',
-				'user'   => '选题：《%s》。直接输出 JSON（不要多余文字）：{"title":"标题","content_html":"完整正文HTML"}',
+				'user'   => '选题：《%s》。直接输出 JSON（不要多余文字）：{"title":"标题","content_html":"完整正文HTML","excerpt":"80-110字中文摘要"}',
 			),
 		);
 		if ( ! isset( $prompts[ $col ] ) ) {
@@ -371,6 +415,7 @@ class ABP_Scheduler {
 			'column'       => $col,
 			'final_title'  => $parsed['title'],
 			'content_html' => $parsed['content_html'],
+			'excerpt'      => $parsed['excerpt'],
 			'category'     => self::column_category( $col ),
 			'tags'         => array( self::column_label( $col ) ),
 			'status'       => 'publish',
@@ -414,7 +459,9 @@ class ABP_Scheduler {
 		if ( '' === $html ) {
 			return null;
 		}
-		return array( 'title' => $title, 'content_html' => $html );
+		// 摘要：AI 未返回时留空，交由 ABP_Publish 兜底从正文截取。
+		$excerpt = isset( $data['excerpt'] ) ? trim( (string) $data['excerpt'] ) : '';
+		return array( 'title' => $title, 'content_html' => $html, 'excerpt' => $excerpt );
 	}
 
 	/**
