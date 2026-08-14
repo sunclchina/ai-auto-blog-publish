@@ -98,6 +98,30 @@ class ABP_Stock {
 			$out['sectors'] = $sectors;
 			$out['ok'] = true;
 		}
+		// 补充：主力资金 / 行业资金流 / 涨跌分布 / 涨跌停 / 融资余额（均东财免费接口）。
+		$out['main_flow']    = self::fetch_em_main_flow();
+		$out['industry_flow'] = self::fetch_em_industry_flow( 5 );
+		$out['breadth']      = self::fetch_em_breadth();
+		$out['limit']        = self::fetch_em_limit_pool( $out['date'] );
+		$out['margin']       = self::fetch_em_margin();
+		// 北向资金：实时净买入自 2024-08-19 起港交所停披露，改用北向日总成交额 / 全市场成交额占比表征外资活跃度。
+		$north_turnover = self::fetch_em_north_turnover();
+		$market_turnover = 0.0;
+		foreach ( (array) $out['indices'] as $ix ) {
+			// 全市场成交额仅计上证+深证（创业板/中证500 为成分指数，成交额重叠）。
+			if ( ! empty( $ix['amount_yi'] ) && in_array( $ix['code'], array( 'sh000001', 'sz399001' ), true ) ) {
+				$market_turnover += (float) $ix['amount_yi'];
+			}
+		}
+		if ( null !== $north_turnover && $market_turnover > 0 ) {
+			$out['north'] = array(
+				'turnover_yi'        => $north_turnover,
+				'market_turnover_yi' => round( $market_turnover, 2 ),
+				'ratio_pct'          => round( $north_turnover / $market_turnover * 100, 2 ),
+			);
+		} else {
+			$out['north'] = null;
+		}
 		return $out;
 	}
 
@@ -197,17 +221,48 @@ class ABP_Stock {
 	}
 
 	/**
+	 * 东财接口请求助手（UA + Referer + 失败重试一次）。
+	 *
+	 * @param string $url 接口地址。
+	 * @return array|null 解析后的 JSON 数组。
+	 */
+	private static function fetch_em_json( $url ) {
+		$args = array(
+			'timeout'    => 12,
+			'sslverify'  => false,
+			'headers'    => array(
+				'User-Agent' => 'Mozilla/5.0',
+				'Referer'    => 'https://quote.eastmoney.com/',
+			),
+		);
+		// push2 对部分 PHP curl 环境会空响应，失败时换 push2delay（延迟行情，收盘后即终值）重试。
+		$urls = array( $url, str_replace( 'push2.eastmoney.com', 'push2delay.eastmoney.com', $url ) );
+		foreach ( $urls as $u ) {
+			for ( $i = 0; $i < 2; $i++ ) {
+				$resp = wp_remote_get( $u, $args );
+				if ( ! is_wp_error( $resp ) && 200 === (int) wp_remote_retrieve_response_code( $resp ) ) {
+					$json = json_decode( wp_remote_retrieve_body( $resp ), true );
+					if ( is_array( $json ) ) {
+						return $json;
+					}
+				}
+				usleep( 300000 );
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * 东财行业板块涨幅榜（前 8，含领涨股）。
 	 *
 	 * @return array[] 每项 {name, change_pct, leader}。
 	 */
 	private static function fetch_em_sectors() {
 		$url = 'https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=8&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2+f:!50&fields=f2,f3,f12,f14,f104,f105,f128,f140';
-		$resp = wp_remote_get( $url, array( 'timeout' => 12, 'sslverify' => false, 'headers' => array( 'User-Agent' => 'Mozilla/5.0' ) ) );
-		if ( is_wp_error( $resp ) || 200 !== (int) wp_remote_retrieve_response_code( $resp ) ) {
+		$data = self::fetch_em_json( $url );
+		if ( ! is_array( $data ) ) {
 			return array();
 		}
-		$data = json_decode( wp_remote_retrieve_body( $resp ), true );
 		$list = isset( $data['data']['diff'] ) ? $data['data']['diff'] : array();
 		$out = array();
 		foreach ( (array) $list as $s ) {
@@ -220,6 +275,218 @@ class ABP_Stock {
 			);
 		}
 		return $out;
+	}
+
+	/**
+	 * 东财大盘主力资金（上证+深证主力净流入合计，元 → 亿元）。
+	 *
+	 * @return float|null 失败返回 null。
+	 */
+	private static function fetch_em_main_flow() {
+		$url = 'https://push2.eastmoney.com/api/qt/ulist.np/get?secids=1.000001,0.399001&fields=f2,f3,f12,f14,f62,f184';
+		$data = self::fetch_em_json( $url );
+		if ( ! is_array( $data ) ) {
+			return null;
+		}
+		$diff = isset( $data['data']['diff'] ) ? $data['data']['diff'] : array();
+		$total = 0.0;
+		foreach ( (array) $diff as $s ) {
+			if ( isset( $s['f62'] ) ) {
+				$total += (float) $s['f62'];
+			}
+		}
+		return round( $total / 1e8, 2 );
+	}
+
+	/**
+	 * 东财行业主力资金净流入（取净流入前 n / 净流出前 n，单位亿元）。
+	 *
+	 * @param int $n 每侧数量。
+	 * @return array{top:array[], bottom:array[]} 每项 {name, net_yi}。
+	 */
+	private static function fetch_em_industry_flow( $n = 5 ) {
+		$base = 'https://push2.eastmoney.com/api/qt/clist/get?fid=f62&pz=10&pn=1&np=1&fltt=2&invt=2&fs=m:90+t:2&fields=f12,f14,f62';
+		$top = self::parse_industry_flow( $base . '&po=1' );
+		$bottom = self::parse_industry_flow( $base . '&po=0' );
+		return array(
+			'top'    => array_slice( $top, 0, $n ),
+			'bottom' => array_slice( $bottom, 0, $n ),
+		);
+	}
+
+	/**
+	 * 解析行业资金流接口返回（按接口排序取前若干项）。
+	 *
+	 * @param string $url 已带 po 排序参数的接口地址。
+	 * @return array[] 每项 {name, net_yi}。
+	 */
+	private static function parse_industry_flow( $url ) {
+		$data = self::fetch_em_json( $url );
+		if ( ! is_array( $data ) ) {
+			return array();
+		}
+		$list = isset( $data['data']['diff'] ) ? $data['data']['diff'] : array();
+		$items = array();
+		foreach ( (array) $list as $s ) {
+			if ( ! isset( $s['f14'], $s['f62'] ) ) {
+				continue;
+			}
+			$items[] = array(
+				'name'   => (string) $s['f14'],
+				'net_yi' => round( (float) $s['f62'] / 1e8, 2 ),
+			);
+		}
+		return $items;
+	}
+
+	/**
+	 * 东财涨跌分布（上涨/下跌/平盘家数，全市场）。
+	 *
+	 * @return array{up:int, down:int, flat:int}|null
+	 */
+	private static function fetch_em_breadth() {
+		$url = 'https://push2ex.eastmoney.com/getTopicZDFenBu?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt';
+		$resp = wp_remote_get( $url, array( 'timeout' => 12, 'sslverify' => false, 'headers' => array( 'User-Agent' => 'Mozilla/5.0', 'Referer' => 'https://quote.eastmoney.com/' ) ) );
+		if ( is_wp_error( $resp ) || 200 !== (int) wp_remote_retrieve_response_code( $resp ) ) {
+			return null;
+		}
+		$data = json_decode( wp_remote_retrieve_body( $resp ), true );
+		$fenbu = isset( $data['data']['fenbu'] ) ? $data['data']['fenbu'] : array();
+		$up = 0;
+		$down = 0;
+		$flat = 0;
+		foreach ( (array) $fenbu as $row ) {
+			foreach ( (array) $row as $pct => $cnt ) {
+				$pct = (int) $pct;
+				$cnt = (int) $cnt;
+				if ( $pct > 0 ) {
+					$up += $cnt;
+				} elseif ( $pct < 0 ) {
+					$down += $cnt;
+				} else {
+					$flat += $cnt;
+				}
+			}
+		}
+		if ( 0 === $up + $down ) {
+			return null;
+		}
+		return array( 'up' => $up, 'down' => $down, 'flat' => $flat );
+	}
+
+	/**
+	 * 东财涨停/跌停/炸板统计（涨停家数、跌停家数、炸板家数、最高连板、涨停行业分布）。
+	 *
+	 * @param string $date Y-m-d。
+	 * @return array{zt:int|null, dt:int|null, zb:int|null, max_lb:int|null, zt_industry:array}
+	 */
+	private static function fetch_em_limit_pool( $date ) {
+		$ymd = str_replace( '-', '', (string) $date );
+		$out = array( 'zt' => null, 'dt' => null, 'zb' => null, 'max_lb' => null, 'zt_industry' => array() );
+		$headers = array( 'User-Agent' => 'Mozilla/5.0', 'Referer' => 'https://quote.eastmoney.com/' );
+		$args = array( 'timeout' => 12, 'sslverify' => false, 'headers' => $headers );
+
+		// 涨停池。
+		$resp = wp_remote_get( 'https://push2ex.eastmoney.com/getTopicZTPool?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=300&sort=fbt:asc&date=' . $ymd, $args );
+		if ( ! is_wp_error( $resp ) && 200 === (int) wp_remote_retrieve_response_code( $resp ) ) {
+			$data = json_decode( wp_remote_retrieve_body( $resp ), true );
+			$out['zt'] = isset( $data['data']['tc'] ) ? (int) $data['data']['tc'] : null;
+			$pool = isset( $data['data']['pool'] ) ? $data['data']['pool'] : array();
+			$max_lb = 0;
+			$inds = array();
+			foreach ( (array) $pool as $p ) {
+				if ( isset( $p['lbc'] ) ) {
+					$max_lb = max( $max_lb, (int) $p['lbc'] );
+				}
+				if ( isset( $p['hybk'] ) ) {
+					$inds[ (string) $p['hybk'] ] = isset( $inds[ (string) $p['hybk'] ] ) ? $inds[ (string) $p['hybk'] ] + 1 : 1;
+				}
+			}
+			$out['max_lb'] = $max_lb > 0 ? $max_lb : null;
+			arsort( $inds );
+			$out['zt_industry'] = array_slice( $inds, 0, 5, true );
+		}
+
+		// 跌停池。
+		$resp = wp_remote_get( 'https://push2ex.eastmoney.com/getTopicDTPool?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=50&sort=fund:asc&date=' . $ymd, $args );
+		if ( ! is_wp_error( $resp ) && 200 === (int) wp_remote_retrieve_response_code( $resp ) ) {
+			$data = json_decode( wp_remote_retrieve_body( $resp ), true );
+			$out['dt'] = isset( $data['data']['tc'] ) ? (int) $data['data']['tc'] : null;
+		}
+
+		// 炸板池。
+		$resp = wp_remote_get( 'https://push2ex.eastmoney.com/getTopicZBPool?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=50&sort=fund:asc&date=' . $ymd, $args );
+		if ( ! is_wp_error( $resp ) && 200 === (int) wp_remote_retrieve_response_code( $resp ) ) {
+			$data = json_decode( wp_remote_retrieve_body( $resp ), true );
+			$out['zb'] = isset( $data['data']['tc'] ) ? (int) $data['data']['tc'] : null;
+		}
+
+		return $out;
+	}
+
+	/**
+	 * 东财融资余额（两市融资融券汇总，T+1 披露）。
+	 *
+	 * @return array{date:string, rzye_yi:float, rzjme_yi:float, rzye_chg_yi:float|null}|null 余额/净买入/较前日变动（亿元）。
+	 */
+	private static function fetch_em_margin() {
+		$url = 'https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPTA_RZRQ_LSHJ&columns=ALL&sortColumns=DIM_DATE&sortTypes=-1&pageSize=2&pageNumber=1';
+		$resp = wp_remote_get( $url, array( 'timeout' => 12, 'sslverify' => false, 'headers' => array( 'User-Agent' => 'Mozilla/5.0' ) ) );
+		if ( is_wp_error( $resp ) || 200 !== (int) wp_remote_retrieve_response_code( $resp ) ) {
+			return null;
+		}
+		$data = json_decode( wp_remote_retrieve_body( $resp ), true );
+		$rows = isset( $data['result']['data'] ) ? $data['result']['data'] : array();
+		if ( ! is_array( $rows ) || empty( $rows[0] ) ) {
+			return null;
+		}
+		$cur = $rows[0];
+		$prev = isset( $rows[1] ) ? $rows[1] : null;
+		$out = array(
+			'date'        => isset( $cur['DIM_DATE'] ) ? (string) $cur['DIM_DATE'] : '',
+			'rzye_yi'     => isset( $cur['RZYE'] ) ? round( (float) $cur['RZYE'] / 1e8, 2 ) : null,
+			'rzjme_yi'    => isset( $cur['RZJME'] ) ? round( (float) $cur['RZJME'] / 1e8, 2 ) : null,
+			'rzye_chg_yi' => null,
+		);
+		if ( $prev && isset( $cur['RZYE'], $prev['RZYE'] ) ) {
+			$out['rzye_chg_yi'] = round( ( (float) $cur['RZYE'] - (float) $prev['RZYE'] ) / 1e8, 2 );
+		}
+		return $out;
+	}
+
+	/**
+	 * 东财北向日总成交额（沪股通 001 + 深股通 003，单位亿元）。
+	 * 注：北向实时净买入自 2024-08-19 起停披露，改用成交额表征外资活跃度。
+	 *
+	 * @return float|null 亿元。
+	 */
+	private static function fetch_em_north_turnover() {
+		$url = 'https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_MUTUAL_DEAL_HISTORY&columns=ALL&sortColumns=TRADE_DATE&sortTypes=-1&pageSize=8&pageNumber=1';
+		$data = self::fetch_em_json( $url );
+		if ( ! is_array( $data ) ) {
+			return null;
+		}
+		$rows = isset( $data['result']['data'] ) ? $data['result']['data'] : array();
+		// 仅取最新交易日（接口按 TRADE_DATE 降序，跨天时避免多日累加）。
+		$latest = '';
+		foreach ( (array) $rows as $row ) {
+			if ( isset( $row['TRADE_DATE'] ) && ( '' === $latest || (string) $row['TRADE_DATE'] > $latest ) ) {
+				$latest = (string) $row['TRADE_DATE'];
+			}
+		}
+		$total = 0.0;
+		$have = false;
+		foreach ( (array) $rows as $row ) {
+			if ( isset( $row['TRADE_DATE'] ) && (string) $row['TRADE_DATE'] !== $latest ) {
+				continue;
+			}
+			$type = isset( $row['MUTUAL_TYPE'] ) ? (string) $row['MUTUAL_TYPE'] : '';
+			if ( in_array( $type, array( '001', '003' ), true ) && isset( $row['DEAL_AMT'] ) ) {
+				$total += (float) $row['DEAL_AMT'];
+				$have = true;
+			}
+		}
+		return $have ? round( $total / 100, 2 ) : null; // 百万 → 亿
 	}
 
 	/**
@@ -250,11 +517,16 @@ class ABP_Stock {
 		$prompt  = isset( $prompts['stock'] ) ? $prompts['stock'] : '';
 
 		$material = array(
-			'date'        => $data['date'],
-			'indices'     => $data['indices'],
-			'sectors'     => $data['sectors'],
-			'breadth'     => $data['breadth'],
-			'source_note' => $data['ok'] ? '新浪财经/东财实时采集' : '行情源暂不可用',
+			'date'         => $data['date'],
+			'indices'      => $data['indices'],
+			'sectors'      => $data['sectors'],
+			'breadth'      => $data['breadth'],
+			'main_flow'    => $data['main_flow'],
+			'industry_flow'=> $data['industry_flow'],
+			'limit'        => $data['limit'],
+			'margin'       => $data['margin'],
+			'north'        => $data['north'],
+			'source_note'  => $data['ok'] ? '新浪财经/东财实时采集' : '行情源暂不可用',
 		);
 		$user_msg = "今日采集素材（JSON）：\n" . wp_json_encode( $material, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
 			. "\n\n请按规范输出 JSON：{\"content_html\":\"完整正文HTML\",\"excerpt\":\"80-110字中文摘要\"}";
