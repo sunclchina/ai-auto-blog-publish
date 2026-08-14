@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: AI自动博客 A-Blog
- * Plugin URI:  https://sunclnas.cn/
+ * Plugin URI:  https://github.com/sunclchina/ai-auto-blog-publish
  * Description: AI 全自动博客内容生产与发布插件（A-Blog）。接收 Python 伴生服务产出的成品文章，经 SimHash 指纹查重后自动建文、分类、打标、配图并发布；自动探测站点模型配置（青简主题 → 其他插件 → 插件自身）。配套 REST API：/wp-json/ai-auto-blog/v1/*。
  * Version: 1.5.47
  * Author:      A-Blog Team
