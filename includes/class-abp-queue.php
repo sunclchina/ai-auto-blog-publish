@@ -103,7 +103,10 @@ class ABP_Queue {
 		if ( mb_strlen( $topic ) > 2000 ) {
 			return array( 'ok' => false, 'error' => '选题过长（最多 2000 字）' );
 		}
-		$column = in_array( (string) $column, array( 'stock', 'tech', 'reading', 'book', 'industry' ), true ) ? (string) $column : '';
+		$column = self::normalize_column( $column );
+		if ( '' === $column ) {
+			return array( 'ok' => false, 'error' => '栏目无法识别（请选择文章分类）' );
+		}
 		$source = in_array( (string) $source, array( 'manual', 'ai', 'local' ), true ) ? (string) $source : 'manual';
 		$t = $wpdb->prefix . self::POOL;
 
@@ -118,7 +121,7 @@ class ABP_Queue {
 			"SELECT COALESCE(MAX(sort_order),0)+1 FROM {$t} WHERE status=%s", 'queued'
 		) );
 		$wpdb->insert( $t, array(
-			'column_name' => $column ? $column : 'tech',
+			'column_name' => $column,
 			'topic'       => $topic,
 			'source'      => $source,
 			'status'      => 'queued',
@@ -177,9 +180,12 @@ class ABP_Queue {
 		}
 		$data = array( 'topic' => $topic );
 		$fmt  = array( '%s' );
-		if ( '' !== (string) $column && in_array( (string) $column, array( 'stock', 'tech', 'reading', 'book', 'industry' ), true ) ) {
-			$data['column_name'] = (string) $column;
-			$fmt[] = '%s';
+		if ( '' !== (string) $column ) {
+			$col = self::normalize_column( $column );
+			if ( '' !== $col ) {
+				$data['column_name'] = $col;
+				$fmt[] = '%s';
+			}
 		}
 		$wpdb->update( $t, $data, array( 'id' => (int) $id ), $fmt, array( '%d' ) );
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$t} WHERE id=%d", (int) $id ), ARRAY_A );
@@ -277,6 +283,69 @@ class ABP_Queue {
 			}
 		}
 		return array( 'ok' => true, 'added' => $added );
+	}
+
+	/**
+	 * 栏目归一化：兼容文章分类名 → 生成引擎栏目代码。
+	 *
+	 * @param mixed $column 原始栏目（代码或中文分类名）。
+	 * @return string 空串表示无法识别。
+	}
+
+	/**
+	 * 引擎栏目代码 → 文章分类名（备用选题池统一以文章分类名为栏目）。
+	 *
+	 * @param string $column 引擎代码（stock/tech/reading/book/industry）。
+	 * @return string 分类名；未知返回原值。
+	 */
+	public static function category_of( $column ) {
+		$map = array(
+			'stock'    => '股票',
+			'tech'     => 'IT',
+			'reading'  => '读书',
+			'book'     => '读书',
+			'industry' => '行业',
+		);
+		return isset( $map[ (string) $column ] ) ? $map[ (string) $column ] : (string) $column;
+	}
+
+	/**
+	 * 文章分类名 → 引擎栏目代码（列入计划/任务创建时用）。
+	 *
+	 * @param string $category 文章分类名。
+	 * @return string 引擎代码；无对应引擎返回空串。
+	 */
+	public static function code_of( $category ) {
+		$map = array(
+			'股票' => 'stock',
+			'股市' => 'stock',
+			'IT'   => 'tech',
+			'读书' => 'reading',
+			'国学' => 'reading',
+			'书评' => 'book',
+			'行业' => 'industry',
+		);
+		return isset( $map[ (string) $category ] ) ? $map[ (string) $category ] : '';
+	}
+
+	/**
+	 * 栏目归一化（备用选题池存储统一用文章分类名）：
+	 * 引擎代码（tech 等）→ 分类名（IT 等）；分类名原样返回；未知报错。
+	 *
+	 * @param mixed $column 原始栏目（代码或文章分类名）。
+	 * @return string 文章分类名；空串表示无法识别。
+	 */
+	private static function normalize_column( $column ) {
+		$column = trim( (string) $column );
+		if ( '' === $column ) {
+			return '';
+		}
+		$codes = array( 'stock', 'tech', 'reading', 'book', 'industry' );
+		if ( in_array( $column, $codes, true ) ) {
+			return self::category_of( $column );
+		}
+		$known = array( '股票', '股市', 'IT', '读书', '国学', '书评', '行业', '推荐', '转载' );
+		return in_array( $column, $known, true ) ? $column : '';
 	}
 
 	/**

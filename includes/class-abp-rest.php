@@ -1006,8 +1006,12 @@ class ABP_REST {
 		if ( 'queued' !== $row['status'] ) {
 			return self::error( '该条目已用，不可重复列入', 400, '', '', 'pool' );
 		}
-		$task_id = self::next_task_id( $row['column_name'] );
-		$r = ABP_Queue::task_create( $task_id, $row['column_name'], $row['topic'] );
+		$code    = ABP_Queue::code_of( $row['column_name'] );
+		if ( '' === $code ) {
+			return self::error( '该分类暂无生成引擎（推荐/转载不支持）', 400, '', '', 'pool' );
+		}
+		$task_id = self::next_task_id( $code );
+		$r = ABP_Queue::task_create( $task_id, $code, $row['topic'] );
 		if ( ! $r['ok'] ) {
 			return self::error( $r['error'], 400, '', '', 'pool' );
 		}

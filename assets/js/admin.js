@@ -120,7 +120,7 @@
 		};
 
 		var columnName = function ( c ) {
-			return { stock: 'A股复盘', tech: 'IT技术', reading: '国学', book: '书评', industry: '行业综述' }[ c ] || c;
+			return { stock: '股票', tech: 'IT', reading: '读书', book: '读书', industry: '行业' }[ c ] || c;
 		};
 
 		// 备选题池栏目下拉：现有文章分类（翁老：栏目在现有分类中选）

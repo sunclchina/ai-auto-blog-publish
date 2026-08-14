@@ -210,9 +210,11 @@ class ABP_Scheduler {
 	private static function pick_topic( $column ) {
 		global $wpdb;
 		$t = $wpdb->prefix . ABP_Queue::POOL;
+		// 池子栏目统一为文章分类名，查询时用代码对应分类。
+		$cat = ABP_Queue::category_of( $column );
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT * FROM {$t} WHERE status=%s AND column_name=%s ORDER BY sort_order ASC, id ASC LIMIT 3",
-			'queued', $column
+			'queued', $cat
 		), ARRAY_A );
 		$pool_topics = array();
 		foreach ( $rows as $r ) {
