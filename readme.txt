@@ -1,10 +1,10 @@
-=== AI自动博客 A-Blog ===
+﻿=== AI自动博客 A-Blog ===
 Contributors: ablogteam
 Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.51
+Stable tag: 1.5.52
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -71,6 +71,13 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.52 =
+* 修复同书重复选题（翁老反馈：《陋室铭》出现两篇——8/15 国学赏析 + 8/16 书评）：
+  * 根因：written_books 书评查重只认 abp_is_book_review 标记的书评文章，国学赏析不算已写，
+    导致同书先赏析后又选作书评；且内置诗词兜底清单误混入古文《陋室铭》
+  * 修复：written_books 改为标题含《书名》的文章（不限栏目/标记）都算已写，
+    国学赏析也纳入防重；移除诗词兜底清单中的《陋室铭》重复条目
 
 = 1.5.51 =
 * ★ 栏目开关与文章分类全面对齐（翁老反馈：行业分析/书评/IT技术 在文章分类中不存在）：

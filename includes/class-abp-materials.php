@@ -253,27 +253,55 @@ class ABP_Materials {
 	}
 
 	/**
-	 * 本站已写书评的书名列表（post meta abp_is_book_review + 标题去《》）。
+	 * 本站已写书评的书名列表（书评选题查重用）。
+	 *
+	 * 翁老规则（v1.5.52）：同一本书只要写过（无论书评还是国学赏析）就不再重复选题。
+	 * 判定：① 打了 abp_is_book_review=1 标记的书评文章；② 标题含《书名》的文章
+	 * （国学赏析/书评标题都带《》，如「读《陋室铭》：原文赏析」）。两者都算已写，
+	 * 避免同书被赏析后又选作书评（《陋室铭》两篇事件根因）。
 	 *
 	 * @return string[]
 	 */
 	private static function written_books() {
 		global $wpdb;
+		$written = array();
+
+		// ① 书评标记文章（历史数据兼容）。
 		$ids = $wpdb->get_col(
 			"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key='abp_is_book_review' AND meta_value='1' LIMIT 500"
 		);
-		$written = array();
+		$titles = array();
 		foreach ( $ids as $pid ) {
-			$title = get_the_title( (int) $pid );
-			if ( ! $title ) {
-				continue;
+			$t = get_the_title( (int) $pid );
+			if ( $t ) {
+				$titles[] = $t;
 			}
-			$title = trim( str_replace( array( '《', '》' ), '', $title ) );
-			// 去掉「读《XX》：书评」前缀后缀
-			if ( preg_match( '/读《([^》]+)》/', $title, $m ) ) {
-				$title = $m[1];
+		}
+
+		// ② 标题含《书名》的文章（不限栏目/标记，国学赏析也算已写）。
+		$rows = $wpdb->get_results(
+			"SELECT post_title FROM {$wpdb->posts} " .
+			"WHERE post_type='post' AND post_status IN ('publish','future','draft') " .
+			"AND post_title LIKE '%《%》%' ORDER BY ID DESC LIMIT 500",
+			ARRAY_A
+		);
+		foreach ( (array) $rows as $r ) {
+			$titles[] = $r['post_title'];
+		}
+
+		foreach ( $titles as $title ) {
+			$title = trim( str_replace( array( '《', '》' ), '', (string) $title ) );
+			// 「读《陋室铭》：原文赏析」去《》后 → 「陋室铭：原文赏析」→ 取冒号前为书名。
+			if ( preg_match( '/^读?\s*([^：:：]+?)\s*[：:]/', $title, $m ) && mb_strlen( $m[1] ) <= 40 ) {
+				$book = trim( $m[1] );
+				if ( '' !== $book && ! in_array( $book, $written, true ) ) {
+					$written[] = $book;
+					continue;
+				}
 			}
-			$written[] = $title;
+			if ( '' !== $title && ! in_array( $title, $written, true ) ) {
+				$written[] = $title;
+			}
 		}
 		return $written;
 	}
@@ -549,7 +577,6 @@ class ABP_Materials {
 			array( 'title' => '声声慢·寻寻觅觅', 'author' => '李清照' ),
 			array( 'title' => '江城子·乙卯正月二十日夜记梦', 'author' => '苏轼' ),
 			array( 'title' => '虞美人·春花秋月何时了', 'author' => '李煜' ),
-			array( 'title' => '陋室铭', 'author' => '刘禹锡' ),
 			array( 'title' => '爱莲说', 'author' => '周敦颐' ),
 			array( 'title' => '岳阳楼记', 'author' => '范仲淹' ),
 			array( 'title' => '醉翁亭记', 'author' => '欧阳修' ),
