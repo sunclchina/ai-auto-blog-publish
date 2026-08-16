@@ -50,11 +50,11 @@ COLUMN_DEFAULT_MODELS = {
     "book": "deepseek-chat",
 }
 
-# 栏目 → 分类名（WP 侧分类，总纲 §7；翁老：只用博客已定义分类，industry→行业、tech→IT）
+# 栏目 → 分类名（WP 侧分类，总纲 §7；翁老：栏目必须对应站点已有分类：股票/IT/国学/读书/行业）
 COLUMN_CATEGORIES = {
-    "stock": "股市",
+    "stock": "股票",
     "tech": "IT",
-    "reading": "读书",
+    "reading": "国学",
     "book": "读书",
     "industry": "行业",
 }

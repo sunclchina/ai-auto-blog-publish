@@ -38,6 +38,11 @@ class ABP_Settings {
 			'column_industry_enabled' => 'on',
 			'image_enabled'         => 'on',
 			'publish_enabled'       => 'on',
+			'summary_enabled'       => 'on',
+			'comments_enabled'      => 'off',
+			'comments_count'        => 5,
+			'topics_enabled'        => 'off',
+			'topics_count'          => 2,
 			'flush_cache'           => 'on',
 			'daily_limit'           => 3,      // 每日发文篇数 1-10。
 			'daily_token_limit'     => 200000, // 每日 Token 额度。
@@ -198,9 +203,13 @@ class ABP_Settings {
 		$clean   = array();
 
 		// 开关类：只允许 on/off。
-		foreach ( array( 'ai_enabled', 'column_stock_enabled', 'column_tech_enabled', 'column_reading_enabled', 'column_book_enabled', 'column_industry_enabled', 'image_enabled', 'publish_enabled', 'flush_cache', 'auto_update_enabled' ) as $switch ) {
+		foreach ( array( 'ai_enabled', 'column_stock_enabled', 'column_tech_enabled', 'column_reading_enabled', 'column_book_enabled', 'column_industry_enabled', 'image_enabled', 'publish_enabled', 'summary_enabled', 'comments_enabled', 'topics_enabled', 'flush_cache', 'auto_update_enabled' ) as $switch ) {
 			$clean[ $switch ] = ( isset( $input[ $switch ] ) && 'on' === $input[ $switch ] ) ? 'on' : 'off';
 		}
+
+		// 评论/话题数量（配套开关的条数/个数）。
+		$clean['comments_count'] = isset( $input['comments_count'] ) ? max( 1, min( 30, (int) $input['comments_count'] ) ) : 5;
+		$clean['topics_count']   = isset( $input['topics_count'] ) ? max( 1, min( 5, (int) $input['topics_count'] ) ) : 2;
 
 		// 每日发文篇数：1-10 收敛。
 		$clean['daily_limit'] = isset( $input['daily_limit'] ) ? (int) $input['daily_limit'] : 3;
@@ -496,13 +505,13 @@ class ABP_Settings {
 								<td><?php self::render_switch( 'ai_enabled', $settings, '关闭后不生成文章' ); ?></td>
 							</tr>
 							<tr>
-								<th scope="row">栏目开关</th>
+								<th scope="row">栏目开关<br /><small>（对应文章分类：股票 / IT / 国学 / 读书 / 行业）</small></th>
 								<td>
-									<?php self::render_switch( 'column_stock_enabled', $settings, '复盘' ); ?>
-									<?php self::render_switch( 'column_tech_enabled', $settings, 'IT技术' ); ?>
+									<?php self::render_switch( 'column_stock_enabled', $settings, '股票（A股复盘）' ); ?>
+									<?php self::render_switch( 'column_tech_enabled', $settings, 'IT' ); ?>
 									<?php self::render_switch( 'column_reading_enabled', $settings, '国学' ); ?>
-									<?php self::render_switch( 'column_book_enabled', $settings, '书评' ); ?>
-									<?php self::render_switch( 'column_industry_enabled', $settings, '行业分析' ); ?>
+									<?php self::render_switch( 'column_book_enabled', $settings, '读书' ); ?>
+									<?php self::render_switch( 'column_industry_enabled', $settings, '行业' ); ?>
 								</td>
 							</tr>
 							<tr>
@@ -512,6 +521,24 @@ class ABP_Settings {
 							<tr>
 								<th scope="row">发布开关</th>
 								<td><?php self::render_switch( 'publish_enabled', $settings, '关闭=仅存草稿，不直接发布（总纲 4）' ); ?></td>
+							</tr>
+							<tr>
+								<th scope="row">摘要开关</th>
+								<td><?php self::render_switch( 'summary_enabled', $settings, '文章完成时自动生成 AI 摘要（post_excerpt）' ); ?></td>
+							</tr>
+							<tr>
+								<th scope="row">评论开关</th>
+								<td>
+									<?php self::render_switch( 'comments_enabled', $settings, '文章完成时自动生成 AI 评论' ); ?>
+									<label>条数 <input type="number" name="abp_settings[comments_count]" min="1" max="30" value="<?php echo esc_attr( (int) $settings['comments_count'] ); ?>" class="small-text" /></label>
+								</td>
+							</tr>
+							<tr>
+								<th scope="row">话题开关</th>
+								<td>
+									<?php self::render_switch( 'topics_enabled', $settings, '文章完成时自动提炼热门话题并归档' ); ?>
+									<label>个数 <input type="number" name="abp_settings[topics_count]" min="1" max="5" value="<?php echo esc_attr( (int) $settings['topics_count'] ); ?>" class="small-text" /></label>
+								</td>
 							</tr>
 							<tr>
 								<th scope="row">发布后刷新缓存</th>
@@ -532,11 +559,11 @@ class ABP_Settings {
 								<td>
 									<?php
 									$pool_cols = array(
-										'stock'    => '复盘',
-										'tech'     => 'IT技术',
+										'stock'    => '股票',
+										'tech'     => 'IT',
 										'reading'  => '国学',
-										'book'     => '书评',
-										'industry' => '行业分析',
+										'book'     => '读书',
+										'industry' => '行业',
 									);
 									foreach ( $pool_cols as $pool_key => $pool_label ) :
 										?>

@@ -29,23 +29,23 @@ ai:
 columns:
   stock:
     enabled: true
-    category: "A股每日复盘"
+    category: "股票"
     schedule: "trading-day 20:00"        # 仅交易日，固定 20:00
   tech:
     enabled: true
-    category: "IT技术笔记"
+    category: "IT"
     schedule: "weekly 1-3 random 09:00-21:00"
   reading:
     enabled: true
-    category: "读书与国学"
+    category: "国学"
     schedule: "weekly 1-3 random"
   book:
     enabled: true
-    category: "读书与国学"
+    category: "读书"
     schedule: "weekly 1-3 random"
   industry:
     enabled: true
-    category: "行业综述"
+    category: "行业"
     schedule: "weekly 1-3 random"
 
 # ---------------- 每日配额与栏目轮换（总纲 §4） ----------------

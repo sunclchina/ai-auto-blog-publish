@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.50
+Stable tag: 1.5.51
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -70,6 +70,28 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.51 =
+* ★ 栏目开关与文章分类全面对齐（翁老反馈：行业分析/书评/IT技术 在文章分类中不存在）：
+  * 站点实际分类为 股票 / IT / 国学 / 读书 / 行业（线上与本地一致）；
+  * 修复发布映射表 stock→「股市」（站点无此分类）导致复盘文章全落「未分类」的问题，
+    现统一映射：复盘→股票、IT技术→IT、国学→国学、书评→读书、行业分析→行业；
+  * 调度器 column_category 弃用站点不存在的 slug（a-share-review / reading-classics），
+    直接返回中文分类名，按名字精确匹配；
+  * 备选题池 category_of/code_of 同步对齐（读书→book、国学→reading 分开）；
+  * Python 侧 COLUMN_CATEGORIES 与 config.yaml columns.category 同步为分类名；
+  * 设置页栏目开关标签改为文章分类名（股票 / IT / 国学 / 读书 / 行业）。
+* 修复配图开关失效（翁老反馈：关闭后仍生成配图）：
+  * 根因：Python apply_wp_model_config 在 /health 同步生图配置时强制 image.enabled=True，
+    覆盖了 /settings 同步来的开关状态；
+  * 修复：生图配置同步只更新 key/endpoint/model，不再触碰 image.enabled。
+* 修复 AI 写文总开关在插件本地生成路径不生效：
+  * WP-Cron 调度器 build_daily_queue / process_due 增加 ai_enabled 检查，关闭则不建队列、不生成。
+* 修复栏目开关缺行业：Python apply_wp_settings 补充 column_industry_enabled → industry 映射。
+* 新增三开关（文章完成时自动生成，WP-Cron 延迟执行避免拖长发布请求）：
+  * 摘要开关：开启 → AI 生成 60-120 字摘要写入；关闭 → 文章不带摘要
+  * 评论开关：开启 → 自动生成 5 条 AI 评论（状态遵循「评论必须经人工批准」设置）
+  * 话题开关：开启 → 自动提炼 2 个热门话题并归档（abp_topic）
 
 = 1.5.47 =
 * 修复股市复盘查重失效（翁老反馈：8月10日复盘出现两篇）：

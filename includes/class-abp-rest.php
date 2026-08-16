@@ -514,6 +514,9 @@ class ABP_REST {
 			'column_industry_enabled' => ( 'on' === ( isset( $s['column_industry_enabled'] ) ? $s['column_industry_enabled'] : 'on' ) ),
 			'image_enabled'       => ( 'on' === ( isset( $s['image_enabled'] ) ? $s['image_enabled'] : 'on' ) ),
 			'publish_enabled'     => ( 'on' === ( isset( $s['publish_enabled'] ) ? $s['publish_enabled'] : 'on' ) ),
+			'summary_enabled'     => ( 'on' === ( isset( $s['summary_enabled'] ) ? $s['summary_enabled'] : 'on' ) ),
+			'comments_enabled'    => ( 'on' === ( isset( $s['comments_enabled'] ) ? $s['comments_enabled'] : 'off' ) ),
+			'topics_enabled'      => ( 'on' === ( isset( $s['topics_enabled'] ) ? $s['topics_enabled'] : 'off' ) ),
 			'flush_cache'         => ( 'on' === ( isset( $s['flush_cache'] ) ? $s['flush_cache'] : 'on' ) ),
 			'daily_limit'         => isset( $s['daily_limit'] ) ? (int) $s['daily_limit'] : 3,
 			'daily_token_limit'   => isset( $s['daily_token_limit'] ) ? (int) $s['daily_token_limit'] : 200000,
@@ -802,12 +805,13 @@ class ABP_REST {
 	public static function handle_written_books( $request ) {
 		$category_id = 0;
 
-		$term = get_term_by( 'slug', 'reading-classics', 'category' );
+		// 书评文章归入「读书」分类（站点已有分类，slug 为中文编码 %e8%af%bb%e4%b9%a6）。
+		$term = get_term_by( 'name', '读书', 'category' );
 		if ( ! $term || is_wp_error( $term ) ) {
-			$term = get_term_by( 'name', '读书与国学', 'category' );
+			$term = get_term_by( 'slug', 'reading-classics', 'category' );
 		}
 		if ( ! $term || is_wp_error( $term ) ) {
-			$term = get_term_by( 'name', '读书', 'category' );
+			$term = get_term_by( 'name', '读书与国学', 'category' );
 		}
 		if ( $term && ! is_wp_error( $term ) ) {
 			$category_id = (int) $term->term_id;

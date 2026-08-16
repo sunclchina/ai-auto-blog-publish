@@ -24,17 +24,17 @@ class ABP_Publish {
 
 	/**
 	 * 分类映射表（对齐博客已有分类，值 = 目标分类名）：
-	 * 股市 / IT / 读书 / 行业。任何别名都归入对应已有分类，绝不产生新分类。
+	 * 股票 / IT / 国学 / 读书 / 行业。任何别名都归入对应已有分类，绝不产生新分类。
 	 * key 为栏目码或常见别名（小写），value 为博客已定义的分类名。
 	 */
 	private static $category_slug_map = array(
-		'stock'       => '股市',
-		'a-share-review' => '股市',
-		'a股每日复盘' => '股市',
-		'a股复盘'     => '股市',
-		'复盘'        => '股市',
-		'股市'        => '股市',
-		'股票'        => '股市',
+		'stock'       => '股票',
+		'a-share-review' => '股票',
+		'a股每日复盘' => '股票',
+		'a股复盘'     => '股票',
+		'复盘'        => '股票',
+		'股市'        => '股票',
+		'股票'        => '股票',
 		'tech'        => 'IT',
 		'it技术笔记'  => 'IT',
 		'it技术'      => 'IT',
@@ -42,12 +42,12 @@ class ABP_Publish {
 		'技术'        => 'IT',
 		'it-notes'    => 'IT',
 		'it'          => 'IT',
-		'reading'     => '读书',
+		'reading'     => '国学',
 		'book'        => '读书',
-		'reading-classics' => '读书',
-		'读书与国学'  => '读书',
+		'reading-classics' => '国学',
+		'读书与国学'  => '国学',
 		'读书'        => '读书',
-		'国学'        => '读书',
+		'国学'        => '国学',
 		'书评'        => '读书',
 		'industry'    => '行业',
 		'行业综述'    => '行业',
@@ -209,6 +209,25 @@ class ABP_Publish {
 		// 指纹入库（查重体系：建文成功即登记，后续 /check 与发布前查重可命中）。
 		$plain = wp_strip_all_tags( $content );
 		abp_fingerprint_save( $post_id, abp_simhash( $plain ), $title );
+
+		// 记录任务标识（供发布后附加内容事件写日志用）。
+		if ( '' !== $task_id ) {
+			update_post_meta( $post_id, '_abp_task_id', $task_id );
+		}
+		if ( '' !== $column ) {
+			update_post_meta( $post_id, '_abp_column', $column );
+		}
+
+		// 文章完成附加内容（摘要/评论/话题开关，v1.5.51）：
+		// 发布成功后调度一次性 WP-Cron 事件延迟执行（约 30 秒后），
+		// 避免拖长 REST 发布请求（Python 侧超时 30s）；失败不阻断发布（尽力而为）。
+		$extras_settings = ABP_Settings::get_settings();
+		$want_extras = ( 'on' === ( isset( $extras_settings['summary_enabled'] ) ? $extras_settings['summary_enabled'] : 'on' ) )
+			|| ( 'on' === ( isset( $extras_settings['comments_enabled'] ) ? $extras_settings['comments_enabled'] : 'off' ) )
+			|| ( 'on' === ( isset( $extras_settings['topics_enabled'] ) ? $extras_settings['topics_enabled'] : 'off' ) );
+		if ( $want_extras && ! wp_next_scheduled( 'abp_after_publish_extras', array( $post_id ) ) ) {
+			wp_schedule_single_event( time() + 30, 'abp_after_publish_extras', array( $post_id ) );
+		}
 
 		// 缓存刷新钩子（总纲 7 适配缓存插件：预留钩子，可按设置执行）。
 		if ( 'on' === $settings['flush_cache'] ) {
@@ -491,6 +510,63 @@ class ABP_Publish {
 			return '';
 		}
 		return $file;
+	}
+
+	/**
+	 * 文章完成附加内容（v1.5.51 摘要/评论/话题开关）——WP-Cron 事件处理器。
+	 *
+	 * 由 publish() 调度的一次性事件触发（abp_after_publish_extras，约发布后 30 秒）：
+	 *   - summary_enabled=on 且文章无摘要 → AI 生成摘要（post_excerpt + meta description）
+	 *   - comments_enabled=on → 生成 5 条 AI 评论（状态遵循「评论必须经人工批准」设置）
+	 *   - topics_enabled=on → 提炼 2 个热门话题并归档（abp_topic 分类法）
+	 *
+	 * 失败不阻断发布（尽力而为）；每个动作写 wp_abp_log 供后台查看。
+	 *
+	 * @param int $post_id 文章 ID。
+	 * @return void
+	 */
+	public static function run_after_publish_extras( $post_id ) {
+		$post_id = (int) $post_id;
+		if ( ! $post_id || ! get_post( $post_id ) ) {
+			return;
+		}
+		$settings = ABP_Settings::get_settings();
+		$title    = get_the_title( $post_id );
+		$task_id  = (string) get_post_meta( $post_id, '_abp_task_id', true );
+		$column   = (string) get_post_meta( $post_id, '_abp_column', true );
+
+		// 摘要开关：开启且文章无摘要 → AI 生成（翁老规则：只接受 AI 生成/手工填写，不硬截取正文充数）。
+		if ( 'on' === ( isset( $settings['summary_enabled'] ) ? $settings['summary_enabled'] : 'on' ) ) {
+			$excerpt = trim( (string) get_post_field( 'post_excerpt', $post_id ) );
+			if ( '' === $excerpt ) {
+				$r = ABP_Toolbox::generate_summary( $post_id, true );
+				if ( isset( $r['ok'] ) && $r['ok'] ) {
+					abp_log_write( $task_id, $column, 'summary', 'ok', 'AI 摘要自动生成 post_id=' . $post_id );
+				} else {
+					abp_log_write( $task_id, $column, 'summary', 'fail', 'AI 摘要生成失败：' . ( isset( $r['error'] ) ? $r['error'] : '未知' ) );
+				}
+			}
+		}
+
+		// 评论开关：开启 → 生成 5 条 AI 评论（遵循评论审批设置）。
+		if ( 'on' === ( isset( $settings['comments_enabled'] ) ? $settings['comments_enabled'] : 'off' ) ) {
+			$r = ABP_Toolbox::generate_comments( $post_id, 5, null );
+			if ( isset( $r['ok'] ) && $r['ok'] ) {
+				abp_log_write( $task_id, $column, 'comments', 'ok', 'AI 评论自动生成 post_id=' . $post_id . ' 条数=' . $r['inserted'] );
+			} else {
+				abp_log_write( $task_id, $column, 'comments', 'fail', 'AI 评论生成失败：' . ( isset( $r['error'] ) ? $r['error'] : '未知' ) );
+			}
+		}
+
+		// 话题开关：开启 → 提炼 2 个热门话题并归档。
+		if ( 'on' === ( isset( $settings['topics_enabled'] ) ? $settings['topics_enabled'] : 'off' ) ) {
+			$r = ABP_Toolbox::generate_topics( $post_id, 2 );
+			if ( isset( $r['ok'] ) && $r['ok'] ) {
+				abp_log_write( $task_id, $column, 'topics', 'ok', 'AI 话题自动生成 post_id=' . $post_id . ' 话题=' . implode( ',', (array) $r['topics'] ) );
+			} else {
+				abp_log_write( $task_id, $column, 'topics', 'fail', 'AI 话题生成失败：' . ( isset( $r['error'] ) ? $r['error'] : '未知' ) );
+			}
+		}
 	}
 
 	/**

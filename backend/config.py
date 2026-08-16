@@ -250,7 +250,9 @@ def apply_wp_model_config(cfg: Config, payload: Dict[str, Any]) -> Config:
                 cfg.set("image.endpoint", str(img_api["endpoint"]).strip())
             if img_api.get("model"):
                 cfg.set("image.model", str(img_api["model"]).strip())
-            cfg.set("image.enabled", True)
+            # 注意：不在此处强制 image.enabled=True！
+            # 配图开关由 /settings 同步（apply_wp_settings）决定；此处只同步密钥/端点/模型，
+            # 否则 /health 每次同步都会把后台「配图开关」关闭状态覆盖回开启（开关失效根因）。
     return cfg
 
 
@@ -270,6 +272,7 @@ def apply_wp_settings(cfg: Config, payload: Dict[str, Any]) -> Config:
         "column_tech_enabled": "tech",
         "column_reading_enabled": "reading",
         "column_book_enabled": "book",
+        "column_industry_enabled": "industry",
     }
     for key, col in col_map.items():
         if isinstance(payload.get(key), bool):

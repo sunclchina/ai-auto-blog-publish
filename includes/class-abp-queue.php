@@ -302,7 +302,7 @@ class ABP_Queue {
 		$map = array(
 			'stock'    => '股票',
 			'tech'     => 'IT',
-			'reading'  => '读书',
+			'reading'  => '国学',
 			'book'     => '读书',
 			'industry' => '行业',
 		);
@@ -320,7 +320,7 @@ class ABP_Queue {
 			'股票' => 'stock',
 			'股市' => 'stock',
 			'IT'   => 'tech',
-			'读书' => 'reading',
+			'读书' => 'book',
 			'国学' => 'reading',
 			'书评' => 'book',
 			'行业' => 'industry',
