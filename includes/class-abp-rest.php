@@ -412,8 +412,11 @@ class ABP_REST {
 	}
 
 	/**
-	 * POST /toolbox/ai-cover —— AI 生成封面（插件本地生图，逐篇调用）。body: {post_id}。
-	 * 使用设置页「图片 API 配置」的生图服务，生成后自动上传媒体库并设为特色图。
+	 * POST /toolbox/ai-cover —— AI 生成封面（异步：排队后由 WP-Cron 后台生图）。body: {post_id}。
+	 *
+	 * 生图耗时可能超过 nginx fastcgi_read_timeout（默认 60s）导致 502，故改为异步：
+	 * 接口立即返回「已排队」，生图由一次性 WP-Cron 事件（abp_ai_cover_job）后台执行，
+	 * 不受请求超时限制（翁老反馈：线上批量 AI 配图全部 502 失败）。
 	 *
 	 * @param WP_REST_Request $request 请求对象。
 	 * @return WP_REST_Response
@@ -424,12 +427,27 @@ class ABP_REST {
 		if ( ! $pid || ! get_post( $pid ) ) {
 			return self::error( 'post_id 必填且文章存在', 400, '', '', 'toolbox' );
 		}
-		set_time_limit( 0 );
-		$r = ABP_Toolbox::generate_cover( $pid );
-		if ( ! $r['ok'] ) {
-			return self::error( $r['error'], 502, '', '', 'toolbox' );
+		// 已排队/已生成：不重复排队（_abp_cover_pending meta 锁）。
+		if ( get_post_meta( $pid, '_abp_cover_pending', true ) ) {
+			return rest_ensure_response( new WP_REST_Response( array(
+				'ok'      => true,
+				'post_id' => $pid,
+				'queued'  => true,
+				'note'    => '该文章已有配图任务在排队/进行中',
+			), 200 ) );
 		}
-		return rest_ensure_response( new WP_REST_Response( $r, 200 ) );
+		// 已有封面则先清掉（重做语义：翁老规则「重做、覆盖」）。
+		update_post_meta( $pid, '_abp_cover_pending', 1 );
+		if ( ! wp_next_scheduled( 'abp_ai_cover_job', array( $pid ) ) ) {
+			wp_schedule_single_event( time() + 5, 'abp_ai_cover_job', array( $pid ) );
+		}
+		abp_log_write( 'toolbox', 'ai-cover', 'cover', 'queued', 'AI 配图已排队 post_id=' . $pid );
+		return rest_ensure_response( new WP_REST_Response( array(
+			'ok'      => true,
+			'post_id' => $pid,
+			'queued'  => true,
+			'note'    => 'AI 配图已排队，稍后自动完成（WP-Cron 后台执行）',
+		), 200 ) );
 	}
 
 	/**

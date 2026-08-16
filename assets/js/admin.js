@@ -644,7 +644,11 @@
 				var okN = 0, failN = 0, cur = 0;
 				var next = function () {
 					if ( cur >= ids.length ) {
+						var isCover = 'ai-cover' === action;
 						var msg = '批量' + ( 'summary' === action ? '摘要' : 'comments' === action ? '评论' : 'ai-cover' === action ? 'AI 配图' : 'cover' === action ? '配图' : '话题' ) + '完成：成功 ' + okN + ' 篇，失败 ' + failN + ' 篇';
+						if ( isCover && failN === 0 ) {
+							msg = 'AI 配图已全部排队：' + okN + ' 篇。图片由后台自动生成，约 1-2 分钟后刷新查看封面（重新打开此页或点「刷新列表」）。';
+						}
 						tbShow( msg, failN > 0 && 0 === okN );
 						alert( msg );
 						if ( btn ) { btn.disabled = false; }

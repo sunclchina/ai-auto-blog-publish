@@ -127,6 +127,33 @@ class ABP_Toolbox {
 	}
 
 	/**
+	 * AI 配图异步任务处理器（v1.5.52，WP-Cron abp_ai_cover_job 回调）。
+	 *
+	 * 由 handle_toolbox_ai_cover 排队触发，后台执行生图（不受 nginx 请求超时限制）：
+	 *   1. 清除排队锁（_abp_cover_pending）
+	 *   2. 调用 generate_cover 生图 + 上传 + 设特色图
+	 *   3. 结果写 wp_abp_log
+	 *
+	 * @param int $post_id 文章 ID。
+	 * @return void
+	 */
+	public static function run_ai_cover_job( $post_id ) {
+		$post_id = (int) $post_id;
+		if ( ! $post_id || ! get_post( $post_id ) ) {
+			return;
+		}
+		delete_post_meta( $post_id, '_abp_cover_pending' );
+		$r = self::generate_cover( $post_id );
+		if ( isset( $r['ok'] ) && $r['ok'] ) {
+			abp_log_write( 'toolbox', 'ai-cover', 'cover', 'ok',
+				'AI 配图完成 post_id=' . $post_id . ' 附件=' . ( isset( $r['attachment_id'] ) ? $r['attachment_id'] : '' ) );
+		} else {
+			abp_log_write( 'toolbox', 'ai-cover', 'cover', 'fail',
+				'AI 配图失败 post_id=' . $post_id . '：' . ( isset( $r['error'] ) ? $r['error'] : '未知' ) );
+		}
+	}
+
+	/**
 	 * AI 生成文章封面（插件本地生图，OpenAI 兼容 /images/generations）。
 	 * 配置来源：abp_get_models()['image_api']（设置页「图片 API 配置」）。
 	 * 图片生成后自动上传媒体库并设为特色图。

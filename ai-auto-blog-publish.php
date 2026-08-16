@@ -3,7 +3,7 @@
  * Plugin Name: AI自动博客 A-Blog
  * Plugin URI:  https://github.com/sunclchina/ai-auto-blog-publish
  * Description: AI 全自动博客内容生产与发布插件（A-Blog）。接收 Python 伴生服务产出的成品文章，经 SimHash 指纹查重后自动建文、分类、打标、配图并发布；自动探测站点模型配置（青简主题 → 其他插件 → 插件自身）。配套 REST API：/wp-json/ai-auto-blog/v1/*。
- * Version: 1.5.52
+ * Version: 1.5.53
  * Author:      A-Blog Team
  * Author URI:  https://sunclnas.cn/
  * License:     GPL-2.0-or-later
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /* 常量定义 */
-define( 'ABP_VERSION', '1.5.52' );
+define( 'ABP_VERSION', '1.5.53' );
 define( 'ABP_PLUGIN_FILE', __FILE__ );
 define( 'ABP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ABP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -106,6 +106,9 @@ add_action( ABP_Scheduler::HOOK_MATERIALS, array( 'ABP_Scheduler', 'refresh_mate
 
 /* 文章完成附加内容（摘要/评论/话题开关，v1.5.51）：发布后延迟执行 */
 add_action( 'abp_after_publish_extras', array( 'ABP_Publish', 'run_after_publish_extras' ) );
+
+/* AI 配图异步任务（v1.5.52）：工具箱 AI 配图排队后由 WP-Cron 后台生图，避免 nginx 502 */
+add_action( 'abp_ai_cover_job', array( 'ABP_Toolbox', 'run_ai_cover_job' ) );
 
 /* 后台设置页（原则 6 统一入口） */
 ABP_Settings::init();
