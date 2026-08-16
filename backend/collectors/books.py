@@ -70,8 +70,9 @@ class BooksCollector:
             resp.raise_for_status()
             text = resp.text
             # 页面为 WP 列表页：书目形如 《书名》 , 作者。两套正则兜底：
-            # 1) 优先抓 <li>/<p> 结构行
+            # 1) 优先抓 <li>/<p> 结构行（排除侧栏「最近评论」widget：评论标题带《》会污染书目）
             lines = re.findall(r"<li[^>]*>(.*?)</li>", text, re.S)
+            lines = [l for l in lines if "recentcomments" not in l and "\u53d1\u8868\u5728" not in l]  # 发表在
             if not lines:
                 lines = re.findall(r"<p[^>]*>(.*?)</p>", text, re.S)
             books = []

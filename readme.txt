@@ -1,83 +1,12 @@
-﻿=== AI自动博客 A-Blog ===
-Contributors: ablogteam
-Tags: ai, blog, automation, rest-api, simhash, deepseek
-Requires at least: 5.6
-Tested up to: 6.7
-Requires PHP: 7.4
-Stable tag: 1.5.52
-License: GPLv2 or later
-License URI: https://www.gnu.org/licenses/gpl-2.0.html
-
-AI 全自动博客插件（A-Blog）：自动选题、AI 写作、自动配图、定时发布，无人值守日更。自足功能插件——数据、调度、素材、生成全部在 WordPress 内完成，任何环境安装即用，不依赖外部服务。
-
-== Description ==
-
-A-Blog 是**自足功能插件**：内置调度（WP-Cron）、动态选题、AI 写作、行情采集、AI 配图、自动发布，支持股票 / IT / 国学 / 读书 / 行业五个栏目（对应博客已定义分类）。装进 WordPress 即全自动日更，可在本地、云端、任何环境运行。
-
-**核心能力**
-
-* 全自动调度：每日自动建队列 → 到点生成 → 发布；错过任务自动补执行（关机/无访问不丢）
-* SimHash 指纹查重：字符 2-gram + crc32 + 64 位权重累加，汉明距离 < 4 判重，发布前自动拦截重复内容
-* 自动建文：栏目与文章分类一一对应（股票 / IT / 国学 / 读书 / 行业），发布时按分类名精确匹配博客已定义分类，绝不创建新分类；标签智能打标
-* SEO Meta 描述：自动适配 Yoast（_yoast_wpseo_metadesc）/ RankMath（rank_math_description）/ 通用 _abp_meta_description
-* 封面配图：支持 base64 与 URL 上传媒体库并绑定特色图（1280×720 WebP，适配青简主题）；配图开关可关闭纯文字发布
-* 发布控制：草稿 / 发布 / 定时（future + publish_date），后台「发布开关」可强制仅存草稿
-* 文章完成附加内容：摘要 / 评论 / 话题三个独立开关，开启后文章完成时自动生成（WP-Cron 延迟执行，不拖慢发布）
-* 模型配置自动探测：青简主题（qy_ai_api_key）→ 插件自身配置，DeepSeek 单 key 多模型分发
-* 完整后台：开关列表（AI 写文总开关 / 栏目开关 / 配图 / 发布 / 摘要 / 评论 / 话题）、调度配置、API Token 生成、任务日志（最近 50 条 AJAX 刷新）、模型探测结果展示
-
-**REST API（全部需 Bearer Token）**
-
-* `GET /wp-json/ai-auto-blog/v1/health` — 健康检查 + 模型探测摘要
-* `GET /wp-json/ai-auto-blog/v1/categories` — 站点分类列表
-* `POST /wp-json/ai-auto-blog/v1/articles` — 提交成品文章
-* `POST /wp-json/ai-auto-blog/v1/check` — 指纹查重（{fingerprint} 或 {text}）
-* `GET /wp-json/ai-auto-blog/v1/written-books` — 已写书目清单（读书栏目防重复）
-
-== Installation ==
-
-A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（可在本地、云端、任何 WordPress 环境运行）。
-
-1. 后台「插件 → 安装插件 → 上传」上传 `ai-auto-blog-publish-v1.5.51.zip`，激活
-   - 激活自动建表、注册调度（每日自动选题/生成/发布），无需额外操作
-2. 「AI 自动博客」设置页按需配置：
-   - **AI 模型**（默认 deepseek-chat）与 **DeepSeek API Key**（或复用青简主题密钥，自动探测）
-   - 可选：**图片 API 配置**（AI 配图用，支持阿里百炼/OpenAI 兼容）、**Tavily API Key**（行业栏目用）、**站点图书目录**（读书栏目选题用）、**IT RSS 源**（IT 栏目动态选题）
-3. 生成 API Token（供外部调用）
-4. 后台可人工干预：备用选题池、今日计划任务、日志、AI 工具箱（摘要/评论/话题/AI 配图）
-
-**升级**：上传新 zip 覆盖即可（自动建表自愈）；后台「自动升级」可检查 GitHub Release 更新。
-
-== Frequently Asked Questions ==
-
-= 模型从哪里来？ =
-
-探测顺序：① 青简主题密钥；② 插件自身「DeepSeek API Key」配置。均未配置时任务无法生成（后台显示「无可用模型」）。
-
-= API Token 丢了怎么办？ =
-
-后台「AI 自动博客」→「API Token」→「重新生成」。注意旧 Token 立即失效，需同步更新使用方配置。
-
-= 如何只存草稿不发布？ =
-
-关闭「发布开关」（发布开关 → off），所有提交的文章将以草稿状态保存。
-
-= 重复内容会被发布吗？ =
-
-不会。发布前对正文做 SimHash 指纹查重，与站内历史文章汉明距离 < 4 即拒绝（HTTP 409），任务标记为 skipped。
-
-= 封面图支持什么格式？ =
-
-支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
-
-== Changelog ==
-
-= 1.5.52 =
+﻿= 1.5.52 =
 * 修复同书重复选题（翁老反馈：《陋室铭》出现两篇——8/15 国学赏析 + 8/16 书评）：
-  * 根因：written_books 书评查重只认 abp_is_book_review 标记的书评文章，国学赏析不算已写，
-    导致同书先赏析后又选作书评；且内置诗词兜底清单误混入古文《陋室铭》
-  * 修复：written_books 改为标题含《书名》的文章（不限栏目/标记）都算已写，
-    国学赏析也纳入防重；移除诗词兜底清单中的《陋室铭》重复条目
+  * 根因 1：书评选题默认书目 URL 拼错（「藏馆」应为「藏阁」），404 被 nginx 重定向到首页，
+    把首页文章标题（陋室铭/送僧归日本）误抓成书目
+  * 根因 2：written_books 书评查重只认 abp_is_book_review 标记的书评文章，国学赏析不算已写；
+    且书目页侧栏「最近评论」widget 的评论标题带《》也被误抓
+  * 修复：默认 URL 修正为「藏阁书目【电子书】」（旧错名兜底）；
+    fetch_catalog 剥离 recentcomments/「发表在」噪音；written_books 改为标题含《书名》
+    的文章（不限栏目/标记）都算已写；移除诗词兜底清单中误混的古文《陋室铭》
 
 = 1.5.51 =
 * ★ 栏目开关与文章分类全面对齐（翁老反馈：行业分析/书评/IT技术 在文章分类中不存在）：

@@ -317,8 +317,11 @@ class ABP_Materials {
 		$s = is_array( $s ) ? $s : array();
 		$url = isset( $s['book_catalog_url'] ) ? untrailingslashit( esc_url_raw( (string) $s['book_catalog_url'] ) ) : '';
 		if ( '' === $url ) {
+			// 默认书目页：藏阁书目【电子书】（注意是「藏阁」不是「藏馆」——拼错会 404 被 nginx
+			// 重定向到首页，把首页文章标题（陋室铭/送僧归日本）误抓成书目，翁老反馈根因）。
 			$candidates = array(
-				trailingslashit( home_url() ) . urlencode( '藏书馆书目【电子书】' ),
+				trailingslashit( home_url() ) . urlencode( '藏阁书目【电子书】' ),
+				trailingslashit( home_url() ) . urlencode( '藏书馆书目【电子书】' ), // 旧错名兜底
 				trailingslashit( home_url() ) . 'books/',
 				trailingslashit( home_url() ) . 'cangshuge/',
 			);
@@ -349,8 +352,12 @@ class ABP_Materials {
 			return array();
 		}
 		$books = array();
+		// 剥离侧栏「最近评论」等 widget（评论标题带《》会污染书目，如「发表在《读《陋室铭》…》」）。
+		// 特征：li.recentcomments / 含「发表在」的列表项。
+		$html_clean = preg_replace( '/<li[^>]*class=["\'][^"\']*recentcomments[^"\']*["\'][^>]*>.*?<\/li>/is', '', $html );
+		$html_clean = preg_replace( '/<[^>]+>\s*([^<]*\s*)?发表在\s*[^<]*<\/li>/isu', '', $html_clean );
 		// ① 优先：《书名》（高置信）。
-		if ( preg_match_all( '/《([^》]{2,30})》/u', $html, $m ) ) {
+		if ( preg_match_all( '/《([^》]{2,30})》/u', $html_clean, $m ) ) {
 			foreach ( $m[1] as $t ) {
 				$books[] = trim( $t );
 			}
