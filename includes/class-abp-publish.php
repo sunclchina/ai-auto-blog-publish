@@ -229,6 +229,15 @@ class ABP_Publish {
 			wp_schedule_single_event( time() + 30, 'abp_after_publish_extras', array( $post_id ) );
 		}
 
+		// AI 配图（v1.5.52 异步机制）：image_enabled 开且文章尚无特色图 → 自动排队生成。
+		// 翁老规则：自动发布也必须配图（之前仅手动按钮触发，按钮移除后发布文章再无配图）。
+		// 与 extras 同机制，由一次性 WP-Cron 事件（abp_ai_cover_job）后台生图，不拖长 REST 请求。
+		if ( 'on' === $settings['image_enabled'] && ! get_post_thumbnail_id( $post_id )
+		     && ! wp_next_scheduled( 'abp_ai_cover_job', array( $post_id ) ) ) {
+			wp_schedule_single_event( time() + 10, 'abp_ai_cover_job', array( $post_id ) );
+			abp_log_write( $task_id, $column, 'cover', 'queued', 'AI 配图已排队 post_id=' . $post_id );
+		}
+
 		// 缓存刷新钩子（总纲 7 适配缓存插件：预留钩子，可按设置执行）。
 		if ( 'on' === $settings['flush_cache'] ) {
 			self::flush_cache( $post_id );

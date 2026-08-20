@@ -545,10 +545,11 @@ class ABP_Toolbox {
 	public static function generate_comments( $post_id, $count = 5, $status = null ) {
 		$post_id = (int) $post_id;
 		$count   = max( 1, min( 30, (int) $count ) );
-		// 状态遵循 WP 设置（翁老规则）：开启「评论必须经人工批准」→ AI 评论也进待审；
-		// 未开启 → 直接通过。显式传 status 时尊重调用方。
+		// 状态：AI 生成的评论默认直接通过（approved），确保前台可见。
+		// 翁老规则修正：AI 评论是插件受控生成内容，进「待审」会导致前台看不见（误以为没评论）。
+		// 显式传 status 时尊重调用方；如需人工审核可在调用处传 'pending'。
 		if ( null === $status ) {
-			$status = get_option( 'comment_moderation' ) ? 'pending' : 'approved';
+			$status = 'approved';
 		}
 		if ( ! get_post( $post_id ) ) {
 			return array( 'ok' => false, 'error' => '文章不存在' );

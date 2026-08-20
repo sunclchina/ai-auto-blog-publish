@@ -108,7 +108,7 @@ def pick_columns(count: int, weights: Optional[Dict[str, int]] = None, rng: Opti
     if sum(w) <= 0:
         w = [1] * len(cols)
     if count >= len(cols):
-        return [rng.choices(cols, weights=w, k=count)]
+        return rng.choices(cols, weights=w, k=count)
     pool = cols[:]
     pool_w = w[:]
     picks = []
@@ -122,12 +122,14 @@ def pick_columns(count: int, weights: Optional[Dict[str, int]] = None, rng: Opti
 
 
 def _day_columns(date: datetime.date) -> List[str]:
-    """当日可选栏目：非交易日排除复盘栏目（stock）。"""
-    from .calendar import is_trading_day
-    cols = enabled_columns()
-    if not is_trading_day(date):
-        cols = [c for c in cols if c != "stock"]
-    return cols
+    """当日可选栏目。
+
+    复盘栏目（stock）**始终参与**：复盘对象是「上一交易日」，与今天是否交易日无关——
+    周末/节假日没有「当天交易」，正该复盘最近一个已收盘的交易日（周五）。
+    早期「非交易日排除 stock」的规则已废弃（翁老：复盘应是上一交易日，当天未结束不复盘当天）。
+    实际是否成稿由 run_pending_tasks 的数据闸（上一交易日行情可得性）兜底。
+    """
+    return enabled_columns()
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +251,10 @@ def build_daily_tasks(date: Optional[datetime.date] = None,
     date = date or datetime.date.today()
     if isinstance(date, str):
         date = datetime.date.fromisoformat(date)
+    # 复盘对象是「上一交易日」：今天无论是否交易日，复盘最近一个已收盘的交易日。
+    # 例：周四盘前/盘中复盘周三；周一复盘上周五；周末也复盘周五。
+    from .calendar import previous_trading_day
+    prev_td = previous_trading_day(date)
     count = max(1, min(int(count if count is not None else cfg.get("daily.articles_per_day", 3)), 10))
     rng = rng or random.Random()
 
@@ -283,7 +289,7 @@ def build_daily_tasks(date: Optional[datetime.date] = None,
         task = {
             "task_id": task_id,
             "column": col,
-            "topic": (f"{date:%Y-%m-%d} A股每日复盘") if col == "stock" else (pool_topic or _topic_for(col, date)),
+            "topic": (f"{prev_td:%Y-%m-%d} A股每日复盘") if col == "stock" else (pool_topic or _topic_for(col, date)),
             "final_title": "",
             "content_html": "",
             "excerpt": "",
@@ -499,13 +505,39 @@ def _collect_material(column: str, cfg, date: Optional[str] = None) -> dict:
 def _review_date_of(topic: str) -> Optional[datetime.date]:
     """从复盘标题/选题中提取目标复盘日期（YYYY年M月D日 / YYYY-MM-DD / M月D日）。
     提取不到返回 None（视为当日）。"""
-    m = re.search(r"(\d{4})\s*[年\-/]\s*(\d{1,2})\s*[月\-/]\s*(\d{1,2})\s*日?", str(topic or ""))
+    m = re.search(r"(\d{4})\s*[年\-/.]\s*(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*日?", str(topic or ""))
     if m:
         try:
             return datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
         except ValueError:
             return None
     return None
+
+
+def _stock_review_target(topic: Optional[str], now: datetime.datetime) -> tuple:
+    """复盘目标日期硬闸门（翁老规则：复盘=上一交易日，17:00 前绝不复盘当天）。
+
+    返回 (target_date, corrected_topic)：
+    - target_date：实际复盘日期
+    - corrected_topic：若需校正（原 topic 指向今天/未来/缺失）则给出新标题，否则 None
+
+    规则：
+    - 17:00 前执行的任何复盘（自动轮次/补写/手动强制）一律改写为「上一交易日」；
+    - 17:00 后执行：尊重 topic 中显式指定的历史日期，否则也取「上一交易日」；
+    - 任何情况下 target 都不会是今天或未来（当天交易未结束不复盘当天）。
+    """
+    from .calendar import previous_trading_day
+    today = now.date()
+    prev_td = previous_trading_day(today)            # 上一交易日（已跳过周末/节假日/识别补班）
+    extracted = _review_date_of(topic) if topic else None
+    # 17:00 前：强制上一交易日（无论原 topic 写的是什么）
+    if now.hour < 17:
+        target = prev_td
+    else:
+        # 17:00 后：若 topic 显式指定了「过去」的某交易日则尊重，否则上一交易日
+        target = extracted if (extracted and extracted < today) else prev_td
+    corrected = f"{target:%Y-%m-%d} A股每日复盘"
+    return target, (corrected if corrected != (topic or "") else None)
 
 
 def run_topic_selection(column: Optional[str] = None) -> List[dict]:
@@ -631,18 +663,24 @@ def run_pending_tasks(column: Optional[str] = None) -> List[dict]:
     today = datetime.date.today()
     pipe = PipelineAgent(cfg.raw if hasattr(cfg, "raw") else cfg, core=None, dry_run=False)
     results = []
+    now = datetime.datetime.now()
     for row in rows:
         task_id, col = row["task_id"], row["column_name"]
-        if col == "stock" and not is_trading_day(today):
-            db.execute("UPDATE tasks SET status='skipped', error=? WHERE task_id=?",
-                       ("非交易日跳过", task_id))
-            results.append({"task_id": task_id, "ok": False, "status": "skipped", "error": "非交易日"})
-            continue
+        # 复盘栏目：复盘对象是「上一交易日」（17:00 前强制改写，详见 _stock_review_target）；
+        # 是否成稿由下方数据闸（目标日期行情可得性）决定。
         try:
             # 真实数据注入（尤其 stock 复盘：按复盘目标日期采集，历史复盘用 baostock）
             from agents.base import resolve_column as _resolve_col
             is_stock = _resolve_col(col) == "stock"
-            review_date = _review_date_of(row.get("topic") or "") if is_stock else None
+            review_date = None
+            if is_stock:
+                target, corrected_topic = _stock_review_target(row.get("topic"), now)
+                review_date = target
+                if corrected_topic:
+                    # 校正标题，确保复盘日与内容一致（17:00 前强制上一交易日）
+                    db.execute("UPDATE tasks SET topic=?, updated_at=? WHERE task_id=?",
+                               (corrected_topic, db.now_iso(), task_id))
+                    logger.info(f"stock 复盘标题校正 {task_id} -> {corrected_topic}", task_id=task_id)
             material = _collect_material(col, cfg, date=review_date.isoformat() if review_date else None)
             if row.get("topic"):
                 material["topic"] = row["topic"]
@@ -716,7 +754,14 @@ def _run_task_now_inner(task_id: str) -> dict:
     # 真实数据注入（尤其 stock 复盘：正文必须基于采集的真实大盘数据，AI 不得编造行情）
     from agents.base import resolve_column as _resolve_col
     is_stock = _resolve_col(row["column_name"]) == "stock"
-    review_date = _review_date_of(row.get("topic") or "") if is_stock else None
+    review_date = None
+    if is_stock:
+        target, corrected_topic = _stock_review_target(row.get("topic"), datetime.datetime.now())
+        review_date = target
+        if corrected_topic:
+            db.execute("UPDATE tasks SET topic=?, updated_at=? WHERE task_id=?",
+                       (corrected_topic, db.now_iso(), task_id))
+            logger.info(f"stock 复盘标题校正 {task_id} -> {corrected_topic}", task_id=task_id)
     material = _collect_material(row["column_name"], cfg, date=review_date.isoformat() if review_date else None)
     if row.get("topic"):
         material["topic"] = row["topic"]
