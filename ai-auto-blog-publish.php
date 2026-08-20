@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /* 常量定义 */
-define( 'ABP_VERSION', '1.5.53' );
+define( 'ABP_VERSION', '1.5.54' );
 define( 'ABP_PLUGIN_FILE', __FILE__ );
 define( 'ABP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ABP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
