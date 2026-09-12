@@ -682,6 +682,16 @@ def run_pending_tasks(column: Optional[str] = None) -> List[dict]:
                                (corrected_topic, db.now_iso(), task_id))
                     logger.info(f"stock 复盘标题校正 {task_id} -> {corrected_topic}", task_id=task_id)
             material = _collect_material(col, cfg, date=review_date.isoformat() if review_date else None)
+            # 归一化：采集器可能返回 list（tech 问题池等），按栏目包成 dict（与 pipeline._normalize_material 一致），
+            # 否则下方 material["topic"]=... 会对 list 用字符串索引抛
+            # "list indices must be integers or slices, not str"（历史失败任务根因）
+            if isinstance(material, list):
+                if _resolve_col(col) == "tech":
+                    material = {"questions": material}
+                elif _resolve_col(col) == "reading":
+                    material = {"poems": material}
+                else:
+                    material = {"items": material}
             if row.get("topic"):
                 material["topic"] = row["topic"]
             # 复盘数据闸：目标日期数据不可用 → 跳过，不发布旧数据/编数据
