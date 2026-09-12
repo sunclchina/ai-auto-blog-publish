@@ -41,6 +41,49 @@ class ABP_Updater {
 		// GitHub API 降级同因——部分宝塔/Linux PHP 证书链异常或 GitHub 下载慢，
 		// 否则 WP 升级在下载阶段失败，报「无法安装这个包」）。
 		add_filter( 'http_request_args', array( __CLASS__, 'http_args_for_github_download' ), 10, 2 );
+		// v1.5.57：wp_safe_remote_get 有 URL 安全域名白名单（http_allowed_hosts），
+		// GitHub 下载域不在默认白名单 → 下载阶段直接报「下载失败。URL 无效。」；
+		// 这里把本插件 GitHub 下载域加入白名单（仅追加，不影响其它域名）。
+		add_filter( 'http_allowed_hosts', array( __CLASS__, 'allowed_hosts_for_github' ), 10, 2 );
+		// v1.5.57：wp_safe_remote_get 还会先解析域名——若解析到回环/内网地址
+		// （如本机 hosts 把 GitHub 指向 127.0.0.1），默认拒绝并报「URL 无效。」。
+		// 对 GitHub 官方下载域显式放行（不影响其它域名的安全校验）。
+		add_filter( 'http_request_host_is_external', array( __CLASS__, 'allow_github_host_external' ), 10, 3 );
+	}
+
+	/**
+	 * 对 GitHub 官方下载域放行 wp_safe_remote_get 的「回环/内网地址」拒绝逻辑：
+	 * 某些环境 hosts/解析会把 github.com 解析到本地地址（加速工具残留等），
+	 * WP 默认把 127.x 判定为本地并拒绝 → 报「下载失败。URL 无效。」。
+	 * 仅匹配 GitHub 官方下载域，其它域名一律保持 WP 默认校验。
+	 *
+	 * @param bool   $external WP 默认判定（false）。
+	 * @param string $host     请求的 host。
+	 * @param string $url      请求 URL。
+	 * @return bool
+	 */
+	public static function allow_github_host_external( $external, $host = '', $url = '' ) {
+		if ( preg_match( '#^https?://(github\.com|objects\.githubusercontent\.com|codeload\.github\.com)(/|$)#i', (string) $url )
+			|| in_array( strtolower( (string) $host ), array( 'github.com', 'objects.githubusercontent.com', 'codeload.github.com' ), true ) ) {
+			return true;
+		}
+		return $external;
+	}
+
+	/**
+	 * 将本插件 GitHub 下载域加入 WP 安全域名白名单（wp_safe_remote_get 校验用），
+	 * 否则下载 zip 阶段报「下载失败。URL 无效。」（WP 默认白名单不含 GitHub）。
+	 * 仅追加 GitHub 官方下载域，不影响站点其它 HTTP 请求的安全校验。
+	 *
+	 * @param string[] $allowed_hosts 已允许域名列表。
+	 * @param string   $host         当前待校验的请求域名（未使用，仅匹配 WP 签名）。
+	 * @return string[]
+	 */
+	public static function allowed_hosts_for_github( $allowed_hosts, $host = '' ) {
+		$allowed_hosts[] = 'github.com';
+		$allowed_hosts[] = 'objects.githubusercontent.com';
+		$allowed_hosts[] = 'codeload.github.com';
+		return array_values( array_unique( $allowed_hosts ) );
 	}
 
 	/**
