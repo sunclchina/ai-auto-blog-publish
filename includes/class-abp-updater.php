@@ -37,6 +37,31 @@ class ABP_Updater {
 		add_filter( 'pre_set_site_transient_update_plugins', array( __CLASS__, 'check_update' ) );
 		add_filter( 'plugins_api', array( __CLASS__, 'plugin_info' ), 10, 3 );
 		add_filter( 'upgrader_source_selection', array( __CLASS__, 'fix_source_dir' ), 10, 4 );
+		// v1.5.56：升级器下载 zip 时同样降级 SSL/放宽超时（与 get_remote_release 的
+		// GitHub API 降级同因——部分宝塔/Linux PHP 证书链异常或 GitHub 下载慢，
+		// 否则 WP 升级在下载阶段失败，报「无法安装这个包」）。
+		add_filter( 'http_request_args', array( __CLASS__, 'http_args_for_github_download' ), 10, 2 );
+	}
+
+	/**
+	 * 仅对本插件 GitHub 下载域调整请求参数（sslverify=false + 超时放宽），
+	 * 不影响站点其它 HTTP 请求。
+	 *
+	 * @param array  $args 请求参数。
+	 * @param string $url  请求 URL。
+	 * @return array
+	 */
+	public static function http_args_for_github_download( $args, $url ) {
+		if ( ! is_array( $args ) ) {
+			return $args;
+		}
+		$owner = preg_quote( self::owner(), '#' );
+		$repo  = preg_quote( self::repo(), '#' );
+		if ( preg_match( "#^https?://(github\.com/{$owner}/{$repo}|objects\.githubusercontent\.com|codeload\.github\.com)#i", $url ) ) {
+			$args['sslverify'] = false;
+			$args['timeout']   = max( 60, (int) ( isset( $args['timeout'] ) ? $args['timeout'] : 0 ) );
+		}
+		return $args;
 	}
 
 	/**

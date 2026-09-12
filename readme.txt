@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.55
+Stable tag: 1.5.56
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -71,6 +71,16 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.56 =
+* 修复计划任务 tech 栏目必现失败（错误：list indices must be integers or slices, not str）：
+  * 根因：run_pending 执行流水线前对采集素材写选题，而 tech 采集器返回的是列表（问题池），
+    对列表用字符串索引必然抛 TypeError；同轮 book 等栏目正常（返回字典）
+  * 修复：素材按栏目归一化为 dict（tech→questions / reading→poems / 兜底→items）后再写入选题；
+    之前失败的任务可在后台「立即完成」重试
+* 升级器修复「无法安装这个包」：下载 GitHub 发布包时对 github.com/objects.githubusercontent.com/
+  codeload.github.com 降级 SSL 校验并放宽超时（http_request_args filter，仅限本插件仓库域），
+  解决宝塔/Linux PHP 证书链异常或下载慢导致的更新失败
 
 = 1.5.55 =
 * 修复备用选题池出现「读《20》：核心书评与阅读感悟」类异常选题（翁老反馈）：
