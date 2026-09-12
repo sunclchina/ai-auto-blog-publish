@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.56
+Stable tag: 1.5.57
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -71,6 +71,17 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.57 =
+* 修复自动升级「下载失败。URL 无效。」（本机联调站实测复现）：
+  * 根因一：wp_safe_remote_get 的 URL 安全校验不认 github.com（http_allowed_hosts 白名单
+    默认不含 GitHub）→ 下载阶段直接被拒
+  * 根因二：部分环境 hosts/解析把 github.com 指向回环/内网地址（如加速工具残留的
+    127.0.0.1 屏蔽），WP 判定为本地地址并拒绝
+  * 修复：对 github.com / objects.githubusercontent.com / codeload.github.com 三个
+    GitHub 官方下载域加入白名单并放行回环判定（http_allowed_hosts +
+    http_request_host_is_external filter，仅影响本插件仓库域，其它请求保持 WP 默认安全校验）
+  * 若本机 hosts 仍屏蔽 GitHub，需注释相关 127.0.0.1 行（升级器无法绕过系统级屏蔽）
 
 = 1.5.56 =
 * 修复计划任务 tech 栏目必现失败（错误：list indices must be integers or slices, not str）：
