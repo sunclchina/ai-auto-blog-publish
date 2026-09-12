@@ -317,11 +317,12 @@ class ABP_Materials {
 		$s = is_array( $s ) ? $s : array();
 		$url = isset( $s['book_catalog_url'] ) ? untrailingslashit( esc_url_raw( (string) $s['book_catalog_url'] ) ) : '';
 		if ( '' === $url ) {
-			// 默认书目页：藏阁书目【电子书】（注意是「藏阁」不是「藏馆」——拼错会 404 被 nginx
-			// 重定向到首页，把首页文章标题（陋室铭/送僧归日本）误抓成书目，翁老反馈根因）。
+			// 默认书目页：藏书阁书目【电子书】（正确页面名。旧错名「藏阁书目」会 301 到首页，
+			// 首页日历「今天」是 <a>数字</a> 链接，被链接文本正则当书名误抓成「读《20》」等，翁老反馈根因）。
 			$candidates = array(
-				trailingslashit( home_url() ) . urlencode( '藏阁书目【电子书】' ),
-				trailingslashit( home_url() ) . urlencode( '藏书馆书目【电子书】' ), // 旧错名兜底
+				trailingslashit( home_url() ) . urlencode( '藏书阁书目【电子书】' ),
+				trailingslashit( home_url() ) . urlencode( '藏阁书目【电子书】' ),    // 旧错名兜底
+				trailingslashit( home_url() ) . urlencode( '藏书馆书目【电子书】' ), // 更早错名兜底
 				trailingslashit( home_url() ) . 'books/',
 				trailingslashit( home_url() ) . 'cangshuge/',
 			);
@@ -343,8 +344,17 @@ class ABP_Materials {
 	 * @return string[]
 	 */
 	private static function fetch_catalog( $url ) {
-		$resp = wp_remote_get( $url, array( 'timeout' => 10, 'sslverify' => false ) );
-		if ( is_wp_error( $resp ) || 200 !== (int) wp_remote_retrieve_response_code( $resp ) ) {
+		// 不跟随重定向：书目页若 404，nginx 会 301 到首页；跟随会把首页当书目页解析，
+		// 首页日历「今天」是 <a>数字</a> 链接，会被链接文本正则当书名抓取（如「读《20》」）。
+		$resp = wp_remote_get( $url, array( 'timeout' => 10, 'sslverify' => false, 'redirection' => 0 ) );
+		if ( is_wp_error( $resp ) ) {
+			return array();
+		}
+		$code = (int) wp_remote_retrieve_response_code( $resp );
+		if ( in_array( $code, array( 301, 302, 303, 307, 308 ), true ) ) {
+			return array(); // 重定向即页面不存在，跳过该候选，绝不抓首页
+		}
+		if ( 200 !== $code ) {
 			return array();
 		}
 		$html = wp_remote_retrieve_body( $resp );
@@ -359,7 +369,11 @@ class ABP_Materials {
 		// ① 优先：《书名》（高置信）。
 		if ( preg_match_all( '/《([^》]{2,30})》/u', $html_clean, $m ) ) {
 			foreach ( $m[1] as $t ) {
-				$books[] = trim( $t );
+				$t = trim( $t );
+				if ( '' === $t || preg_match( '/^\d+$/u', $t ) ) {
+					continue; // 纯数字（如《20》）不是书名，跳过
+				}
+				$books[] = $t;
 			}
 		}
 		// ② 补充：链接文本中符合书目特征的条目（排除导航词与文章标题）。
@@ -367,6 +381,10 @@ class ABP_Materials {
 			foreach ( $m2[1] as $text ) {
 				$text = trim( strip_tags( $text ) );
 				if ( '' === $text ) {
+					continue;
+				}
+				// 纯数字链接文本（日历「今天」/分页页码）不是书名，跳过。
+				if ( preg_match( '/^\d+$/u', $text ) ) {
 					continue;
 				}
 				// 导航/杂项词过滤。

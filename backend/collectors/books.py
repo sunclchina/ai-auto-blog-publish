@@ -82,7 +82,8 @@ class BooksCollector:
                 if m:
                     title = m.group(1).strip()
                     author = m.group(2).strip().rstrip("，,").strip()
-                    if title:
+                    # 纯数字（如《20》，可能来自误抓首页日历）不是书名，跳过
+                    if title and not re.fullmatch(r"\d+", title):
                         books.append({"title": title, "author": author})
             if not books:
                 # 2) 整页文本兜底（《书名》 作者 模式）
@@ -90,7 +91,8 @@ class BooksCollector:
                 for m in re.finditer(r"《([^》]{2,60})》\s*[，,、]?\s*([^《\n]{0,40})", plain):
                     title = m.group(1).strip()
                     author = m.group(2).strip().rstrip("，,、").strip()
-                    books.append({"title": title, "author": author})
+                    if title and not re.fullmatch(r"\d+", title):
+                        books.append({"title": title, "author": author})
             # 去重保序
             seen, out = set(), []
             for b in books:

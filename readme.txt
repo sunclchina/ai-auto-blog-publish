@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.53
+Stable tag: 1.5.55
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -71,6 +71,15 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.55 =
+* 修复备用选题池出现「读《20》：核心书评与阅读感悟」类异常选题（翁老反馈）：
+  * 根因：默认书目页候选 URL 拼错（「藏阁书目」应为「藏书阁书目」），4 个候选全部
+    301 重定向到首页；wp_remote_get 跟随重定向把首页当书目页解析，首页日历「今天」
+    是 <a>数字</a> 链接，被链接文本正则当书名抓取（每月 10-31 号都会生成数字书名）
+  * 修复：默认 URL 首位改为正确的「藏书阁书目【电子书】」；fetch_catalog 不跟随重定向
+    （301/302/303/307/308 直接跳过，绝不抓首页）；《书名》与链接文本正则过滤纯数字；
+    Python 采集器 books.py 同步过滤纯数字书名
 
 = 1.5.53 =
 * AI 配图改为异步执行（翁老反馈：线上批量 AI 配图全部 502 失败）：
