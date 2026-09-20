@@ -88,8 +88,6 @@ class ABP_Settings {
 			),
 			'tavily_api_key'        => '',        // Tavily 搜索 key（行业综述栏目用）
 			'book_catalog_url'      => '',   // 站点图书目录页地址（书评栏目选题源），空=自动探测常见路径
-			'service_dir'           => '/opt/ablog',
-			'service_name'          => 'ablog',
 		);
 	}
 
@@ -115,7 +113,6 @@ class ABP_Settings {
 
 		// Token 生成（admin-post 表单提交，非 GET 直接操作）。
 		add_action( 'admin_post_abp_generate_token', array( __CLASS__, 'handle_generate_token' ) );
-		add_action( 'admin_post_abp_deploy_service', array( __CLASS__, 'handle_deploy_service' ) );
 		// 日志 AJAX 刷新。
 		add_action( 'wp_ajax_abp_log_refresh', array( __CLASS__, 'ajax_log_refresh' ) );
 		// 日志清空。
@@ -299,11 +296,7 @@ class ABP_Settings {
 
 		// 站点图书目录页地址（书评选题源；留空自动探测）。
 		$clean['book_catalog_url'] = isset( $input['book_catalog_url'] ) ? untrailingslashit( esc_url_raw( (string) $input['book_catalog_url'] ) ) : '';
-		$clean['service_dir']   = isset( $input['service_dir'] ) ? rtrim( wp_normalize_path( trim( (string) $input['service_dir'] ) ), '/\\' ) : '/opt/ablog';
-		if ( '' === $clean['service_dir'] ) { $clean['service_dir'] = '/opt/ablog'; }
-		$clean['service_name']  = isset( $input['service_name'] ) ? sanitize_text_field( $input['service_name'] ) : 'ablog';
-		if ( '' === $clean['service_name'] ) { $clean['service_name'] = 'ablog'; }
-
+				
 
 		return $clean;
 	}
@@ -352,25 +345,6 @@ class ABP_Settings {
 		exit;
 	}
 
-	/**
-	 * 手动部署 backend 到服务目录并重启服务。
-	 *
-	 * @return void
-	 */
-	public static function handle_deploy_service() {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( '权限不足' );
-		}
-		check_admin_referer( 'abp_deploy_service' );
-		$r = ABP_Service::deploy();
-		wp_safe_redirect(
-			add_query_arg(
-				array( 'page' => self::PAGE_SLUG, 'abp_msg' => $r['ok'] ? 'deploy_ok' : 'deploy_fail' ),
-				admin_url( 'admin.php' )
-			)
-		);
-		exit;
-	}
 
 	/**
 	 * 日志 AJAX 刷新（返回日志表格 HTML）。
@@ -663,24 +637,6 @@ class ABP_Settings {
 										当前版本 v<?php echo esc_html( ABP_VERSION ); ?>
 										<button type="button" class="button button-small" id="abp-check-update">检查更新</button>
 										<span id="abp-update-status" class="description"></span>
-									</p>
-								</td>
-							</tr>
-							<tr>
-								<th scope="row">Python 服务部署<br /><small>backend 同步</small></th>
-								<td>
-									<p>
-										<label>服务目录：</label> <input type="text" name="abp_settings[service_dir]" value="<?php echo esc_attr( isset( $settings['service_dir'] ) ? $settings['service_dir'] : '/opt/ablog' ); ?>" class="regular-text code" style="width:200px" />
-										<label>服务名：</label> <input type="text" name="abp_settings[service_name]" value="<?php echo esc_attr( isset( $settings['service_name'] ) ? $settings['service_name'] : 'ablog' ); ?>" class="small-text" style="width:90px" />
-									</p>
-									<p class="description">当前状态：<?php echo esc_html( \ABP_Service::get_status() ); ?></p>
-									<p>
-										<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
-											<input type="hidden" name="action" value="abp_deploy_service" />
-											<?php wp_nonce_field( 'abp_deploy_service' ); ?>
-											<button type="submit" class="button button-secondary">立即部署 backend 并重启</button>
-										</form>
-										<span class="description">插件升级后自动执行；此处手动触发。需 Web 用户对服务目录有写权限、可免密 sudo systemctl restart</span>
 									</p>
 								</td>
 							</tr>

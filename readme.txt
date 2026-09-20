@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.61
+Stable tag: 1.5.62
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -72,12 +72,9 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 
 == Changelog ==
 
-= 1.5.61 =
-* Python 伴生服务跟随插件自动升级：新增 ABP_Service，插件升级成功后自动把插件内置
-  backend/ 同步到 systemd 服务目录（默认 /opt/ablog/）并重启服务（ablog）；
-  设置页新增「Python 服务部署」卡片可手动触发、查看状态。首次使用需在 NAS 上配置：
-  Web 用户对服务目录有写权限、可免密 sudo systemctl restart
-* 数据闸放宽：两市成交额 >500 亿也视为行情真实可用，板块/涨跌家数接口周末暂缺不跳过
+= 1.5.62 =
+* 仅修 bug：数据闸放宽成交额、API Token 重新生成写不进、market 历史补写统一数据源。
+  无任何新增部署步骤。
 
 = 1.5.60 =
 * 修复复盘「数据盲区」废稿（线上 post 7482：9/18 复盘 9/20 补跑，四大指数有数据、

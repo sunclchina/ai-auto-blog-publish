@@ -120,10 +120,6 @@ class ABP_Updater {
 			$ok ? 'ok' : 'fail',
 			$ok ? '自动升级完成，当前版本 ' . ABP_VERSION : '自动升级失败（WP 已尝试回滚），当前版本 ' . ABP_VERSION
 		);
-		// 升级成功后自动把新 backend 推到 systemd 服务目录并重启（v1.5.61）。
-		if ( $ok && class_exists( 'ABP_Service' ) ) {
-			ABP_Service::on_upgrade_done();
-		}
 	}
 
 	/**
