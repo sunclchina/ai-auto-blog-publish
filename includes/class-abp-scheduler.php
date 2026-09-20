@@ -1,6 +1,6 @@
 <?php
 /**
- * class-abp-scheduler.php — 插件自动调度 + 本地生成引擎（v1.5.2）。
+ * class-abp-scheduler.php — 插件自动调度 + 本地生成引擎（v1.5.3）。
  *
  * 插件自足：不依赖外部服务也能自动运行——
  *   1. 每日 build_time（默认 08:00）：从备用池取题建当日任务队列（池子不足自动用内置素材补齐）；
@@ -88,12 +88,14 @@ class ABP_Scheduler {
 		global $wpdb;
 		$t = $wpdb->prefix . ABP_Queue::TASKS;
 		if ( $date ) {
-			$date_str = gmdate( 'Y-m-d', strtotime( $date ) );
+			// 日期串统一按 UTC 零点解析，避免服务器时区把日期偏移一天。
+			$date_str = gmdate( 'Y-m-d', strtotime( $date . ' 00:00:00 UTC' ) );
 		} else {
-			$date_str = gmdate( 'Y-m-d', current_time( 'timestamp' ) + (int) ( get_option( 'gmt_offset' ) * HOUR_IN_SECONDS ) );
+			// current_time('timestamp') 已是本地墙上时间戳（WP 内部已加 gmt_offset），不要再加一次偏移。
+			$date_str = gmdate( 'Y-m-d', current_time( 'timestamp' ) );
 		}
 		$date_ymd = str_replace( '-', '', $date_str );
-		$ts = strtotime( $date_str );
+		$ts = strtotime( $date_str . ' 00:00:00 UTC' );
 
 		// 每日先按设置补充选题池（翁老：备用选题每日新增数，按栏目；一天一次，防重）。
 		self::refill_pool_daily();
@@ -126,10 +128,13 @@ class ABP_Scheduler {
 			}
 			update_option( 'abp_scheduler_rotation', ( $rotation + $limit ) % $n_cols );
 		}
-		// A股复盘：仅交易日选题，题目固定（日期+「A股市场：」+副标题），无需素材库。
+		// A股复盘：仅交易日选题（周末/节假日/调休补班上班日休市，按交易所公告），题目固定
+		// （日期+「A股市场：」+副标题），无需素材库；复盘对象=上一交易日：交易日 T 建任务复盘 T-1，
+		// topic 携带复盘日期（标题/查重以复盘日为准，与 Python 后端 daily_queue 规则一致）。
 		if ( in_array( 'stock', $picked, true ) && ABP_Stock::is_trading_day( $ts ) ) {
 			$task_id = $date_ymd . '-stock-' . sprintf( '%03d', self::column_seq( 'stock', $date_ymd ) );
-			$r = ABP_Queue::task_create( $task_id, 'stock', 'A股每日复盘' );
+			$prev_td = gmdate( 'Y-m-d', ABP_Stock::previous_trading_day( $ts ) );
+			$r = ABP_Queue::task_create( $task_id, 'stock', $prev_td . ' A股每日复盘' );
 			if ( $r['ok'] ) {
 				$created++;
 			}
@@ -329,13 +334,16 @@ class ABP_Scheduler {
 			$task_id = $row['task_id'];
 			$col = $row['column_name'];
 			if ( 'stock' === $col ) {
-				// A股复盘：即时采集行情 + 本地生成（仅交易日会有任务）。
+				// A股复盘：即时采集行情 + 本地生成（仅交易日会有任务；
+				// 数据闸：目标复盘日行情不可用 → skipped，不发布空白报告）。
 				ABP_Queue::task_update_status( $task_id, 'generating' );
 				$r = ABP_Stock::generate( $row );
 				if ( $r['ok'] ) {
 					ABP_Queue::task_update_status( $task_id, 'published', isset( $r['post_id'] ) ? $r['post_id'] : null );
+				} elseif ( ! empty( $r['skipped'] ) ) {
+					ABP_Queue::task_update_status( $task_id, 'skipped', null, isset( $r['error'] ) ? $r['error'] : '' );
 				} else {
-					ABP_Queue::task_update_status( $task_id, 'failed', null, $r['error'] );
+					ABP_Queue::task_update_status( $task_id, 'failed', null, isset( $r['error'] ) ? $r['error'] : '' );
 				}
 				$results[] = array( 'task_id' => $task_id, 'ok' => $r['ok'], 'error' => isset( $r['error'] ) ? $r['error'] : '' );
 				$processed++;

@@ -68,10 +68,11 @@ class ABP_Settings {
 			),
 			'api_token'             => '',
 			'max_tags'              => 10,
-			// GitHub 自动升级（v1.2.0）。
+			// GitHub 自动升级（v1.2.0；v1.5.9 支持自建源 api_base）。
 			'auto_update_enabled'   => 'on',
 			'github_owner'          => 'sunclchina',
 			'github_repo'           => 'ai-auto-blog-publish',
+			'github_api_base'       => 'https://api.github.com',    // GitHub API 基址；自建 Gitea/GHE 填完整 API 基址（如 https://git.example.com/api/v1）。
 			'github_token'          => '',    // 可选：GitHub PAT，防 API 限流。
 			'rss_urls'              => array(
 				// 默认 RSS 源（已实测可用，2026-08-07）：WP 生态 / 建站 / 服务器运维 / 科技。
@@ -87,6 +88,8 @@ class ABP_Settings {
 			),
 			'tavily_api_key'        => '',        // Tavily 搜索 key（行业综述栏目用）
 			'book_catalog_url'      => '',   // 站点图书目录页地址（书评栏目选题源），空=自动探测常见路径
+			'service_dir'           => '/opt/ablog',
+			'service_name'          => 'ablog',
 		);
 	}
 
@@ -112,6 +115,7 @@ class ABP_Settings {
 
 		// Token 生成（admin-post 表单提交，非 GET 直接操作）。
 		add_action( 'admin_post_abp_generate_token', array( __CLASS__, 'handle_generate_token' ) );
+		add_action( 'admin_post_abp_deploy_service', array( __CLASS__, 'handle_deploy_service' ) );
 		// 日志 AJAX 刷新。
 		add_action( 'wp_ajax_abp_log_refresh', array( __CLASS__, 'ajax_log_refresh' ) );
 		// 日志清空。
@@ -280,12 +284,14 @@ class ABP_Settings {
 			$clean['tavily_api_key'] = sanitize_text_field( (string) $input['tavily_api_key'] );
 		}
 
-		// GitHub 自动升级配置（owner/repo 白名单字符；token 留空沿用旧值）。
+		// GitHub 自动升级配置（owner/repo 白名单字符；api_base 仅 http(s)；token 留空沿用旧值）。
 		$clean['auto_update_enabled'] = ( isset( $input['auto_update_enabled'] ) && 'on' === $input['auto_update_enabled'] ) ? 'on' : 'off';
 		$gh_owner = isset( $input['github_owner'] ) ? sanitize_text_field( (string) $input['github_owner'] ) : '';
 		$gh_repo  = isset( $input['github_repo'] ) ? sanitize_text_field( (string) $input['github_repo'] ) : '';
 		$clean['github_owner'] = preg_match( '/^[A-Za-z0-9-]{1,39}$/', $gh_owner ) ? $gh_owner : 'sunclchina';
 		$clean['github_repo']  = preg_match( '/^[A-Za-z0-9_.-]{1,100}$/', $gh_repo ) ? $gh_repo : 'ai-auto-blog-publish';
+		$gh_base = isset( $input['github_api_base'] ) ? esc_url_raw( (string) $input['github_api_base'] ) : '';
+		$clean['github_api_base'] = ( $gh_base && preg_match( '#^https?://#i', $gh_base ) ) ? untrailingslashit( $gh_base ) : 'https://api.github.com';
 		$clean['github_token'] = isset( $old['github_token'] ) ? $old['github_token'] : '';
 		if ( isset( $input['github_token'] ) && '' !== trim( (string) $input['github_token'] ) ) {
 			$clean['github_token'] = sanitize_text_field( (string) $input['github_token'] );
@@ -293,6 +299,10 @@ class ABP_Settings {
 
 		// 站点图书目录页地址（书评选题源；留空自动探测）。
 		$clean['book_catalog_url'] = isset( $input['book_catalog_url'] ) ? untrailingslashit( esc_url_raw( (string) $input['book_catalog_url'] ) ) : '';
+		$clean['service_dir']   = isset( $input['service_dir'] ) ? rtrim( wp_normalize_path( trim( (string) $input['service_dir'] ) ), '/\\' ) : '/opt/ablog';
+		if ( '' === $clean['service_dir'] ) { $clean['service_dir'] = '/opt/ablog'; }
+		$clean['service_name']  = isset( $input['service_name'] ) ? sanitize_text_field( $input['service_name'] ) : 'ablog';
+		if ( '' === $clean['service_name'] ) { $clean['service_name'] = 'ablog'; }
 
 
 		return $clean;
@@ -325,6 +335,9 @@ class ABP_Settings {
 			wp_die( '权限不足' );
 		}
 		check_admin_referer( 'abp_generate_token' );
+		// 关键：sanitize 回调把 api_token 强制沿用旧值（表单保护）；这里是显式重新生成，
+		// 必须临时摘掉它，否则新 token 被 update_option 触发 sanitize 时覆盖回旧值（空）。
+		remove_filter( 'sanitize_option_' . self::OPTION, array( __CLASS__, 'sanitize' ) );
 
 		$settings = self::get_settings();
 		$settings['api_token'] = wp_generate_password( 32, false, false );
@@ -333,6 +346,26 @@ class ABP_Settings {
 		wp_safe_redirect(
 			add_query_arg(
 				array( 'page' => self::PAGE_SLUG, 'abp_msg' => 'token_generated' ),
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
+	/**
+	 * 手动部署 backend 到服务目录并重启服务。
+	 *
+	 * @return void
+	 */
+	public static function handle_deploy_service() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( '权限不足' );
+		}
+		check_admin_referer( 'abp_deploy_service' );
+		$r = ABP_Service::deploy();
+		wp_safe_redirect(
+			add_query_arg(
+				array( 'page' => self::PAGE_SLUG, 'abp_msg' => $r['ok'] ? 'deploy_ok' : 'deploy_fail' ),
 				admin_url( 'admin.php' )
 			)
 		);
@@ -613,7 +646,19 @@ class ABP_Settings {
 							<tr>
 								<th scope="row">自动升级<br /><small>GitHub Release</small></th>
 								<td>
-									<p><?php self::render_switch( 'auto_update_enabled', $settings, '开启后定期检查 GitHub 最新版本，后台「插件」页出现标准更新提示' ); ?></p>
+									<p><?php self::render_switch( 'auto_update_enabled', $settings, '开启后每日自动检查最新版本，后台「插件」页出现标准更新提示' ); ?></p>
+									<p>
+										<label>Owner：</label> <input type="text" name="abp_settings[github_owner]" value="<?php echo esc_attr( isset( $settings['github_owner'] ) ? $settings['github_owner'] : 'sunclchina' ); ?>" class="small-text" style="width:120px" />
+										<label>Repo：</label> <input type="text" name="abp_settings[github_repo]" value="<?php echo esc_attr( isset( $settings['github_repo'] ) ? $settings['github_repo'] : 'ai-auto-blog-publish' ); ?>" class="small-text" style="width:180px" />
+									</p>
+									<p>
+										<label>API 基址：</label> <input type="url" name="abp_settings[github_api_base]" value="<?php echo esc_attr( isset( $settings['github_api_base'] ) ? $settings['github_api_base'] : 'https://api.github.com' ); ?>" class="regular-text" placeholder="https://api.github.com" />
+										<span class="description">默认 GitHub API；自建 Gitea/GHE 填完整 API 基址（如 https://git.example.com/api/v1）</span>
+									</p>
+									<p>
+										<label>Token（可选）：</label> <input type="password" name="abp_settings[github_token]" value="" class="regular-text" autocomplete="new-password" placeholder="留空保持不变" />
+										<span class="description">GitHub PAT，防 API 限流（未认证限 60 次/小时/IP）</span>
+									</p>
 									<p>
 										当前版本 v<?php echo esc_html( ABP_VERSION ); ?>
 										<button type="button" class="button button-small" id="abp-check-update">检查更新</button>
@@ -621,6 +666,25 @@ class ABP_Settings {
 									</p>
 								</td>
 							</tr>
+							<tr>
+								<th scope="row">Python 服务部署<br /><small>backend 同步</small></th>
+								<td>
+									<p>
+										<label>服务目录：</label> <input type="text" name="abp_settings[service_dir]" value="<?php echo esc_attr( isset( $settings['service_dir'] ) ? $settings['service_dir'] : '/opt/ablog' ); ?>" class="regular-text code" style="width:200px" />
+										<label>服务名：</label> <input type="text" name="abp_settings[service_name]" value="<?php echo esc_attr( isset( $settings['service_name'] ) ? $settings['service_name'] : 'ablog' ); ?>" class="small-text" style="width:90px" />
+									</p>
+									<p class="description">当前状态：<?php echo esc_html( \ABP_Service::get_status() ); ?></p>
+									<p>
+										<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
+											<input type="hidden" name="action" value="abp_deploy_service" />
+											<?php wp_nonce_field( 'abp_deploy_service' ); ?>
+											<button type="submit" class="button button-secondary">立即部署 backend 并重启</button>
+										</form>
+										<span class="description">插件升级后自动执行；此处手动触发。需 Web 用户对服务目录有写权限、可免密 sudo systemctl restart</span>
+									</p>
+								</td>
+							</tr>
+
 							<tr>
 								<th scope="row"><label for="abp_max_tags">单篇标签上限</label></th>
 								<td><input type="number" id="abp_max_tags" name="abp_settings[max_tags]" min="1" max="30" value="<?php echo esc_attr( $settings['max_tags'] ); ?>" class="small-text" /></td>

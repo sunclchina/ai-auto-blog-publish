@@ -1,0 +1,13 @@
+﻿python.exe :   File "<string>", line 1
+所在位置 行:1 字符: 43
++ ... \ablog.db'; & "C:\Users\suncl\AppData\Local\Programs\Python\Python311 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (  File "<string>", line 1:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    import sqlite3,json; c=sqlite3.connect(r'D:\my-project\A-Blog\data\ablog.db'); c.row_factory=sqlite3.Row; rows=c.ex
+ecute(" SELECT task_id,column_name,status,error,publish_date,created_at,updated_at FROM tasks WHERE publish_date LIKE 2
+026-09-18% OR target_date LIKE 2026-09-18% OR task_id LIKE %stock% ORDER BY updated_at DESC LIMIT 10\).fetchall();
+                                                                                                                       
+      ^
+SyntaxError: unterminated string literal (detected at line 1)

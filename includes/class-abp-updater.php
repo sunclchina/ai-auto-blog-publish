@@ -1,16 +1,23 @@
 <?php
 /**
- * class-abp-updater.php — GitHub Release 自动升级（v1.2.0）
+ * class-abp-updater.php — GitHub Release 自动升级（v1.2.0 → v1.5.9 完善）
  *
  * 原理：接入 WordPress 标准更新通道（update_plugins transient + plugins_api），
- * 从 GitHub Releases API 拉取最新版本，匹配 zip 包：
+ * 从 Release API 拉取最新版本，匹配 zip 包：
  *   优先 Release Asset（zip 根目录即 ai-auto-blog-publish，WP 直接识别），
  *   无 Asset 时回退 Source code zip（配合 upgrader_source_selection 重命名目录）。
  * 后台「插件」页出现标准「有可用更新」提示，一键走 WP 自带升级流程。
  *
  * 配置（后台「AI 自动博客」→「自动升级」卡片）：
- *   owner/repo（默认 sunclchina/ai-auto-blog-publish）、开关、可选 Token
- *   （GitHub API 未认证限 60 次/小时/IP，配 Token 可到 5000 次/小时）。
+ *   owner/repo、api_base（默认 GitHub API；自建 Gitea/GHE 填完整 API 基址）、
+ *   开关、可选 Token（GitHub API 未认证限 60 次/小时/IP，配 Token 可到 5000 次/小时）。
+ *
+ * v1.5.9 完善：
+ *   - 更新源可配置（api_base）：自建 Gitea/Gitee/GHE 镜像可直接换源；
+ *   - 独立每日检查定时（不依赖 WP 更新 cron，WP-Cron 被禁用的环境也能发现新版本）；
+ *   - 升级包完整性校验：解压后的源目录必须包含主插件文件，防下载错误包损坏站点；
+ *   - 升级完成/失败写任务日志 + 清理 Release 缓存（upgrader_process_complete）；
+ *   - 下载包选择优先匹配含版本号的资产（Release 挂多个 zip 时不选错）。
  *
  * @package AI_Auto_Blog_Publish
  */
@@ -23,6 +30,7 @@ class ABP_Updater {
 
 	const CACHE_KEY = 'abp_gh_release_cache';
 	const CACHE_TTL = 12 * HOUR_IN_SECONDS;
+	const CRON_HOOK = 'abp_updater_daily';
 
 	/**
 	 * 初始化：钩子挂载（由主文件调用一次；开关关闭则不注册任何更新通道）。
@@ -49,6 +57,86 @@ class ABP_Updater {
 		// （如本机 hosts 把 GitHub 指向 127.0.0.1），默认拒绝并报「URL 无效。」。
 		// 对 GitHub 官方下载域显式放行（不影响其它域名的安全校验）。
 		add_filter( 'http_request_host_is_external', array( __CLASS__, 'allow_github_host_external' ), 10, 3 );
+		// v1.5.9：升级完成/失败写日志 + 清 Release 缓存；独立每日检查定时。
+		add_action( 'upgrader_process_complete', array( __CLASS__, 'upgrade_done' ), 10, 2 );
+		self::schedule();
+	}
+
+	/**
+	 * 注册每日检查定时（幂等；激活/每次 init 自愈）。
+	 *
+	 * @return void
+	 */
+	public static function schedule() {
+		if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', self::CRON_HOOK );
+		}
+	}
+
+	/**
+	 * 清理每日检查定时（停用插件时）。
+	 *
+	 * @return void
+	 */
+	public static function unschedule() {
+		wp_clear_scheduled_hook( self::CRON_HOOK );
+	}
+
+	/**
+	 * 每日检查回调：强制刷新 Release 缓存（让后台「插件」页的 transient 尽早拿到新版本；
+	 * 不依赖 WP 自带的 wp_update_plugins cron，WP-Cron 被禁用的环境也能发现更新）。
+	 *
+	 * @return void
+	 */
+	public static function daily_refresh() {
+		$release = self::get_remote_release( true );
+		if ( $release && ! empty( $release['tag_name'] ) ) {
+			abp_log_write( 'updater', 'updater', 'daily_check', 'ok',
+				'最新版本 ' . $release['tag_name'] . '（当前 ' . ABP_VERSION . '）' );
+		}
+	}
+
+	/**
+	 * 升级完成后处理（成功/失败/回滚均触发）：写日志 + 清 Release 缓存。
+	 *
+	 * @param WP_Upgrader $upgrader  升级器实例。
+	 * @param array       $hook_extra 额外参数（含 plugin basename）。
+	 * @return void
+	 */
+	public static function upgrade_done( $upgrader, $hook_extra ) {
+		if ( ! self::is_our_upgrade( $hook_extra ) ) {
+			return;
+		}
+		delete_site_transient( self::CACHE_KEY );
+		// WP_Upgrader::$result 为 public 属性：成功为路径字符串，失败为 WP_Error（回滚后仍为错误）。
+		$ok = ! is_wp_error( $upgrader );
+		if ( is_object( $upgrader ) && isset( $upgrader->result ) ) {
+			$ok = ! is_wp_error( $upgrader->result );
+		}
+		abp_log_write(
+			'updater',
+			'updater',
+			$ok ? 'upgrade_success' : 'upgrade_failed',
+			$ok ? 'ok' : 'fail',
+			$ok ? '自动升级完成，当前版本 ' . ABP_VERSION : '自动升级失败（WP 已尝试回滚），当前版本 ' . ABP_VERSION
+		);
+		// 升级成功后自动把新 backend 推到 systemd 服务目录并重启（v1.5.61）。
+		if ( $ok && class_exists( 'ABP_Service' ) ) {
+			ABP_Service::on_upgrade_done();
+		}
+	}
+
+	/**
+	 * 判断本次升级是否为 A-Blog 插件（钩子来自本插件的更新）。
+	 *
+	 * @param array|null $hook_extra upgrader hook_extra。
+	 * @return bool
+	 */
+	private static function is_our_upgrade( $hook_extra ) {
+		if ( ! is_array( $hook_extra ) || empty( $hook_extra['plugin'] ) ) {
+			return false;
+		}
+		return self::plugin_basename() === (string) $hook_extra['plugin'];
 	}
 
 	/**
@@ -131,13 +219,27 @@ class ABP_Updater {
 		return isset( $s['github_repo'] ) ? trim( (string) $s['github_repo'] ) : 'ai-auto-blog-publish';
 	}
 
+	/**
+	 * Release API 基址（v1.5.9 起可配置；默认 GitHub，自建 Gitea/GHE 填完整 API 基址）。
+	 *
+	 * @return string
+	 */
+	public static function api_base() {
+		$s = ABP_Settings::get_settings();
+		$base = isset( $s['github_api_base'] ) ? untrailingslashit( trim( (string) $s['github_api_base'] ) ) : '';
+		if ( ! $base || ! preg_match( '#^https?://#i', $base ) ) {
+			return 'https://api.github.com';
+		}
+		return $base;
+	}
+
 	public static function token() {
 		$s = ABP_Settings::get_settings();
 		return isset( $s['github_token'] ) ? trim( (string) $s['github_token'] ) : '';
 	}
 
 	/**
-	 * 拉取 GitHub 最新 Release（带 12h 缓存；force 强制刷新）。
+	 * 拉取最新 Release（带 12h 缓存；force 强制刷新）。
 	 *
 	 * @param bool $force 是否忽略缓存。
 	 * @return array|null 失败返回 null（静默，不影响站点）。
@@ -152,7 +254,7 @@ class ABP_Updater {
 		if ( ! $owner || ! $repo ) {
 			return null;
 		}
-		$url = 'https://api.github.com/repos/' . rawurlencode( $owner ) . '/' . rawurlencode( $repo ) . '/releases/latest';
+		$url = self::api_base() . '/repos/' . rawurlencode( $owner ) . '/' . rawurlencode( $repo ) . '/releases/latest';
 		$args = array(
 			'timeout' => 15,
 			'headers' => array(
@@ -166,7 +268,7 @@ class ABP_Updater {
 		}
 		$resp = wp_remote_get( $url, $args );
 		// 部分 Windows PHP 环境的 OpenSSL 证书链验证异常（即使配置了 CA 也无法验证 GitHub 证书），
-		// 对 GitHub API 域降级重试一次（仅传输层/证书类失败才降级，404 等业务错误不重试）。
+		// 对 API 域降级重试一次（仅传输层/证书类失败才降级，404 等业务错误不重试）。
 		if ( is_wp_error( $resp ) || 0 === wp_remote_retrieve_response_code( $resp ) ) {
 			$args2          = $args;
 			$args2['sslverify'] = false;
@@ -225,16 +327,38 @@ class ABP_Updater {
 	/**
 	 * 计算下载包地址。
 	 *
+	 * 选择顺序：1) 资产名含版本号（v1.5.58 / 1.5.58）的插件 zip；
+	 * 2) 资产名含插件名且 .zip；3) 回退 Source code zip（zipball_url）。
+	 *
 	 * @param array $release GitHub release 数据。
 	 * @return string 空串表示无可用包。
 	 */
 	public static function package_url( $release ) {
 		$assets = isset( $release['assets'] ) && is_array( $release['assets'] ) ? $release['assets'] : array();
+		$ver    = ltrim( (string) ( isset( $release['tag_name'] ) ? $release['tag_name'] : '' ), 'vV' );
+		$fallback = '';
 		foreach ( $assets as $a ) {
 			$name = isset( $a['name'] ) ? (string) $a['name'] : '';
-			if ( false !== strpos( $name, 'ai-auto-blog-publish' ) && '.zip' === substr( $name, -4 ) ) {
-				return isset( $a['browser_download_url'] ) ? $a['browser_download_url'] : '';
+			if ( false === strpos( $name, 'ai-auto-blog-publish' ) || '.zip' !== substr( $name, -4 ) ) {
+				continue;
 			}
+			$url = isset( $a['browser_download_url'] ) ? (string) $a['browser_download_url'] : '';
+			if ( ! $url ) {
+				continue;
+			}
+			if ( '' === $fallback ) {
+				$fallback = $url;
+			}
+			// 资产名含版本号（v1.5.58 / 1.5.58 等）优先，避免 Release 挂多个 zip 时选错。
+			if ( $ver && false !== strpos( $name, $ver ) ) {
+				return $url;
+			}
+			if ( preg_match( '/[vV]?\d+\.\d+\.\d+.*\.zip$/', $name ) ) {
+				return $url;
+			}
+		}
+		if ( $fallback ) {
+			return $fallback;
 		}
 		// 回退：Source code zip（codeload 域名，配合 fix_source_dir 重命名目录）。
 		if ( ! empty( $release['zipball_url'] ) ) {
@@ -245,7 +369,8 @@ class ABP_Updater {
 
 	/**
 	 * Source code zip 的顶层目录是 {repo}-{tag}，与插件目录名不符会导致升级失败，
-	 * 统一重命名为 ai-auto-blog-publish（仅处理本插件升级）。
+	 * 统一重命名为 ai-auto-blog-publish；同时校验包内必须包含主插件文件
+	 * （防下载到错误包/残缺包损坏站点，v1.5.9）。
 	 *
 	 * @param string      $source       解压后源目录。
 	 * @param string      $remote_source 远端临时目录。
@@ -264,17 +389,23 @@ class ABP_Updater {
 		$slug = dirname( $base );
 		$src  = rtrim( $source, '/\\' );
 		$new  = rtrim( dirname( $source ), '/\\' ) . DIRECTORY_SEPARATOR . $slug;
-		if ( $src === rtrim( $new, '/\\' ) ) {
-			return $source; // 目录名已正确（Asset 包）。
+		if ( $src !== rtrim( $new, '/\\' ) ) {
+			global $wp_filesystem;
+			if ( $wp_filesystem ) {
+				$wp_filesystem->delete( $new, true );
+				if ( ! $wp_filesystem->move( $src, $new ) ) {
+					return $source; // 重命名失败，交回 WP 处理（大概率报错，但不至于破坏站点）。
+				}
+			} elseif ( ! @rename( $src, $new ) ) { // phpcs:ignore
+				return $source;
+			}
 		}
-		global $wp_filesystem;
-		if ( $wp_filesystem ) {
-			$wp_filesystem->delete( $new, true );
-			$wp_filesystem->move( $src, $new );
-		} elseif ( @rename( $src, $new ) ) { // phpcs:ignore
-			// PHP 原生 rename 兜底。
-		} else {
-			return $source; // 重命名失败，交回 WP 处理（大概率报错，但不至于破坏站点）。
+		// 完整性校验：包内必须包含主插件文件，否则中止升级（WP 会清理临时目录并提示错误）。
+		if ( ! is_file( $new . DIRECTORY_SEPARATOR . 'ai-auto-blog-publish.php' ) ) {
+			return new WP_Error(
+				'abp_bad_package',
+				'下载包不包含 ai-auto-blog-publish/ai-auto-blog-publish.php，已中止升级（可能下载到错误版本或残缺包）'
+			);
 		}
 		return $new;
 	}
@@ -326,7 +457,7 @@ class ABP_Updater {
 		if ( ! $release ) {
 			return array(
 				'ok'    => false,
-				'error' => 'GitHub 不可达或仓库不存在（检查 owner/repo 与网络）',
+				'error' => '更新源不可达或仓库不存在（检查 owner/repo、API 基址与网络）',
 			);
 		}
 		$remote_ver = ltrim( (string) $release['tag_name'], 'vV' );

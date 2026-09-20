@@ -10,6 +10,7 @@ stock 栏目强制携带风险提示句（“不构成投资建议”）。
 import os
 import sys
 import re
+import json
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -240,10 +241,38 @@ class ContentAgent(BaseAgent):
         return "\n".join(lines)
 
     def _sanitize_html(self, text):
-        """清洗 LLM 输出为纯正文 HTML：去掉 markdown 代码围栏与 html 外壳。"""
-        text = text.strip()
-        text = re.sub(r"^```(?:html)?\s*", "", text)
+        """清洗 LLM 输出为纯正文 HTML：去掉 markdown 代码围栏与 html 外壳。
+
+        v1.5.60：兼容 AI 偶发输出 JSON 包装（{"content_html": "...", "excerpt": "..."}）——
+        提取 content_html 后再清洗，避免 JSON 键名泄漏进正文（线上 post 7482 教训）。
+        """
+        text = str(text or "").strip()
+        text = re.sub(r"^```(?:html|json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
+        # JSON 包装提取：全文可解析优先，否则取首个 {...} 块
+        data = None
+        try:
+            data = json.loads(text)
+        except Exception:
+            pass
+        if not isinstance(data, dict):
+            m = re.search(r"\{.*\}", text, re.S)
+            if m:
+                try:
+                    data = json.loads(m.group(0))
+                except Exception:
+                    data = None
+        if isinstance(data, dict) and isinstance(data.get("content_html"), str):
+            text = data["content_html"].strip()
+        else:
+            # 特征兜底：JSON 解析失败但含 content_html 键（AI 偶发输出未转义换行的伪 JSON）
+            m = re.search(r'"content_html"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.S)
+            if m:
+                val = m.group(1)
+                val = re.sub(r'\\(["\\/bfnrt])', r'\1', val)
+                val = re.sub(r'\\u([0-9a-fA-F]{4})',
+                             lambda mm: chr(int(mm.group(1), 16)), val)
+                text = val.strip()
         text = re.sub(r"^<html.*?>", "", text, flags=re.S)
         text = re.sub(r"</html>\s*$", "", text)
         # 兜底：若输出是纯文本（无任何标签），按段落包 <p>

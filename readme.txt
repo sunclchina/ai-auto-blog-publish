@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.57
+Stable tag: 1.5.61
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,15 +38,15 @@ A-Blog 是**自足功能插件**：内置调度（WP-Cron）、动态选题、AI
 
 A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（可在本地、云端、任何 WordPress 环境运行）。
 
-1. 后台「插件 → 安装插件 → 上传」上传 `ai-auto-blog-publish-v1.5.51.zip`，激活
-   - 激活自动建表、注册调度（每日自动选题/生成/发布），无需额外操作
+1. 后台「插件 → 安装插件 → 上传」上传 `ai-auto-blog-publish-v1.5.59.zip`，激活
+   - 激活自动建表、注册调度（每日自动选题/生成/发布）与自动升级每日检查，无需额外操作
 2. 「AI 自动博客」设置页按需配置：
    - **AI 模型**（默认 deepseek-chat）与 **DeepSeek API Key**（或复用青简主题密钥，自动探测）
    - 可选：**图片 API 配置**（AI 配图用，支持阿里百炼/OpenAI 兼容）、**Tavily API Key**（行业栏目用）、**站点图书目录**（读书栏目选题用）、**IT RSS 源**（IT 栏目动态选题）
 3. 生成 API Token（供外部调用）
 4. 后台可人工干预：备用选题池、今日计划任务、日志、AI 工具箱（摘要/评论/话题/AI 配图）
 
-**升级**：上传新 zip 覆盖即可（自动建表自愈）；后台「自动升级」可检查 GitHub Release 更新。
+**升级**：上传新 zip 覆盖即可（自动建表自愈）；后台「自动升级」可检查 GitHub Release 更新——开启开关后每日自动检查，后台「插件」页出现标准更新提示，一键升级。默认源为 GitHub（owner/repo/API 基址可改），自建 Gitea/Gitee/GHE 填完整 API 基址即可换源。
 
 == Frequently Asked Questions ==
 
@@ -71,6 +71,64 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.61 =
+* Python 伴生服务跟随插件自动升级：新增 ABP_Service，插件升级成功后自动把插件内置
+  backend/ 同步到 systemd 服务目录（默认 /opt/ablog/）并重启服务（ablog）；
+  设置页新增「Python 服务部署」卡片可手动触发、查看状态。首次使用需在 NAS 上配置：
+  Web 用户对服务目录有写权限、可免密 sudo systemctl restart
+* 数据闸放宽：两市成交额 >500 亿也视为行情真实可用，板块/涨跌家数接口周末暂缺不跳过
+
+= 1.5.60 =
+* 修复复盘「数据盲区」废稿（线上 post 7482：9/18 复盘 9/20 补跑，四大指数有数据、
+  板块/涨跌家数/资金流/涨跌停/融资/北向全部缺失，AI 生成满篇「数据未覆盖」并直接发布）：
+  * 数据闸加严（PHP + Python 双侧）：复盘数据必须「指数 + 至少一个结构维度」可用；
+    仅指数（历史补写日K场景）视为数据严重残缺 → 跳过不发布，宁可缺一天不复盘
+  * 修复 AI 输出 JSON 包装泄漏：Python ContentAgent._sanitize_html 对
+    {"content_html": "...", "excerpt": "..."} 形态未解析，JSON 键名直接泄漏进正文
+    （对齐 PHP 端 parse_html；含伪 JSON 特征提取兜底）
+* 历史补写与当日写统一数据源：collectors/market 不再因目标日期早于今天就切到
+  "只有指数"的 baostock 分支（那是 7482「数据盲区」废稿的直接成因）。历史补写同样
+  走新浪实时 + 东财板块/涨跌家数；新浪快照日期修正为真实行情日期，非交易时段补跑
+  时若快照定格日 == 目标日则全量采用，否则指数回退 baostock、结构数据置空，绝不
+  拿错日期的数据冒充（附修 Optional 未导入的隐藏 NameError）
+* 修复 API Token「重新生成」表面成功实则写不进去：register_setting 的 sanitize
+  回调把 api_token 强制沿用旧值（表单保护），重新生成时 update_option 触发该回调，
+  新 token 被覆盖回旧值（空）。改为生成前临时摘掉该过滤器（本地实测：旧写法写新值
+  被覆盖、修复后正确写入）
+* 数据闸放宽：两市成交额（>500 亿，来自指数成交额汇总的真实值）也视为行情真实可用，
+  不再仅因板块/涨跌家数接口（东财周末常断）暂缺就跳过复盘；7482 那种连成交额都没有
+  的真·数据盲区仍一律跳过
+
+= 1.5.59 =
+* 完善 GitHub Release 自动更新机制：
+  * 更新源可配置：设置页「自动升级」卡片新增 Owner / Repo / API 基址 / Token 输入框；
+    API 基址默认 GitHub API，自建 Gitea/Gitee/GHE 填完整 API 基址（如 https://git.example.com/api/v1）
+    即可从自建源升级
+  * 独立每日检查定时（abp_updater_daily，每日自动强制刷新 Release 缓存）：不依赖 WP 自带
+    更新 cron，WP-Cron 被禁用的环境也能发现新版本；停用插件时自动清理该定时
+  * 升级包完整性校验：解压后源目录必须包含 ai-auto-blog-publish.php 主插件文件，
+    下载到错误包/残缺包时中止升级（WP 自动清理临时目录），防止损坏站点
+  * 升级完成/失败写任务日志（upgrader_process_complete），并清理 Release 缓存
+  * 下载包选择优化：Release 挂多个 zip 资产时，优先匹配资产名含版本号的包，避免选错
+
+= 1.5.58 =
+* 修复 A股复盘历史行情「数据失联」空白文章（线上 post 7474）：
+  * 根因：新浪日K datalen=15 仅约 3 周窗口，目标复盘日不在窗口内取不到数据；
+    generate() 无数据闸，照样调 AI 并发布空白报告
+  * 修复：fetch_sina_kline 按目标日期动态扩窗（datalen 15–250）；generate() 新增数据闸——
+    目标日指数数据不可用返回 skipped，不调 AI 不发布（数据闸先于复盘查重，避免误删旧文）；
+    process_due stock 分支支持 skipped 状态回写
+* 修复补班上班日误判交易日（本地 Python 日历）：
+  * 2026 年 6 个补班上班日（1/4、2/14、2/28、5/9、9/20、10/10）均落在周末且沪深北交易所
+    全部休市，此前本地日历把补班日当交易日，可能误建复盘任务
+  * 修复：calendar.py 不再认补班日为交易日（以交易所公告为准）；daily_queue 非交易日不建
+    stock 复盘任务
+* 统一复盘日期规则（复盘=上一交易日，PHP 与 Python 对齐）：
+  * 交易日 T 建任务时 topic 携带上一交易日日期；generate() 按 topic 显式日期 → task_id 日期
+    → 上一交易日三级解析复盘日，标题/查重以复盘日为准；非交易日（含调休补班上班日）不建复盘任务
+* 修正休市表 2026-02-24、2026-10-08 误列（交易所公告为开市日）；日期串统一按 UTC 零点解析，
+  避免服务器时区把日期偏移一天
 
 = 1.5.57 =
 * 修复自动升级「下载失败。URL 无效。」（本机联调站实测复现）：
@@ -283,6 +341,11 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 * 首发版本：REST 接收、SimHash 查重、自动建文/分类/标签/配图/定时发布、模型配置探测、后台设置页与任务日志
 
 == Upgrade Notice ==
+
+= 1.5.59 =
+* 升级后到「AI 自动博客 → 自动升级」卡片确认：Owner / Repo 默认 sunclchina/ai-auto-blog-publish，
+  API 基址默认 https://api.github.com；自建 Gitea/Gitee/GHE 源请改填完整 API 基址。
+  开启开关后每日自动检查更新；升级过程记录于任务日志（动作 upgrade_success/upgrade_failed）。
 
 = 1.2.0 =
 * 升级后到「AI 自动博客 → 配置表单 → 自动升级」确认仓库地址（默认已填 sunclchina/ai-auto-blog-publish）；如需从本机 Gitea 或自建源升级，改填对应仓库即可。

@@ -16,6 +16,7 @@ import sys
 import struct
 import logging
 import datetime as dt
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -59,8 +60,14 @@ class MarketCollector:
     def collect(self, date: Optional[str] = None):
         """主入口。任何异常兜底返回空字段 dict，绝不抛出。
 
-        date=None → 当日（新浪实时主源 + 通达信同时间校对）；
-        date=历史日期 → baostock 历史日线（该日真实收盘数据）。
+        历史补写与当日写使用同一套数据源（v1.5.61）：统一走实时行情接口
+        （新浪指数 + 东财板块/涨跌家数），不再因 target < today 就切到只有指数的
+        baostock 分支（那是 7482「数据盲区」废稿的根因）。
+
+        日期正确性：
+        - 快照定格日 == target（周末/节假日补跑，实时接口定格在最近交易日）→ 全量采用；
+        - 快照日 != target（盘中错日/隔日补跑）→ 板块/涨跌家数置空，指数回退
+          baostock 历史日线取 target 准确值——绝不拿错日期的数据冒充。
         """
         target = dt.date.fromisoformat(date) if date else dt.date.today()
         result = {
@@ -72,14 +79,6 @@ class MarketCollector:
             "source_chain": [],
             "errors": [],
         }
-        # 历史日期 → baostock 历史数据（当日数据源无历史时）
-        if target < dt.date.today():
-            indices = self._fetch_history_indices(target)
-            self._chain("baostock" if indices else "history_failed")
-            result["indices"] = indices or []
-            result["turnover"] = self._sum_turnover(indices)
-            result["source_chain"] = self.source_chain
-            return result
         try:
             # 近期走势（近 5 个交易日收盘，技术面/量能对比素材）
             result["recent"] = self._fetch_recent_indices(target, days=5)
@@ -112,10 +111,25 @@ class MarketCollector:
                 result["indices"] = tdx_indices
                 self._chain("tdx_fallback_used")
 
-            # 4) 涨跌家数 + 板块热点（东财，失败留空）
-            result["breadth"] = self._fetch_breadth()
-            result["sectors"] = self._fetch_sectors()
-            self._chain("eastmoney" if (result["breadth"] or result["sectors"]) else "eastmoney_failed")
+            # 4) 快照日期校验：实时数据定格日必须 == target，否则结构数据（板块/涨跌家数）
+            #    是别的交易日的，不能冒充 target → 置空；指数回退 baostock 历史值。
+            snap_date = ""
+            if result["indices"]:
+                snap_date = str(result["indices"][0].get("date") or "").replace("-", "")
+            want = target.isoformat().replace("-", "")
+            if snap_date and snap_date != want:
+                self._chain(f"snap_date_mismatch({snap_date}!={want})")
+                result["breadth"] = None
+                result["sectors"] = []
+                hist = self._fetch_history_indices(target)
+                if hist:
+                    result["indices"] = hist
+                    self._chain("baostock_fallback_indices")
+            else:
+                # 快照日与目标日一致 → 涨跌家数 + 板块热点（东财，失败留空）
+                result["breadth"] = self._fetch_breadth()
+                result["sectors"] = self._fetch_sectors()
+                self._chain("eastmoney" if (result["breadth"] or result["sectors"]) else "eastmoney_failed")
 
             # 成交额汇总（基于当前采用的指数数据）
             result["turnover"] = self._sum_turnover(result["indices"])
@@ -365,9 +379,12 @@ class MarketCollector:
                 prev_close = self._f(fields[2])
                 close = self._f(fields[3])
                 amount = self._f(fields[9])  # 成交额（元）
+                # 真实快照日期（fields[30]=2026-09-18），不再写死 today——
+                # 周末/节假日补跑时新浪定格在最近交易日，需靠它做日期校验。
+                snap_date = fields[30] if len(fields) > 30 else dt.date.today().isoformat()
                 out.append({
                     "code": code, "name": name,
-                    "date": dt.date.today().isoformat(),
+                    "date": snap_date,
                     "close": close,
                     "change": round(close - prev_close, 2) if prev_close else None,
                     "change_pct": round((close - prev_close) / prev_close * 100, 2) if prev_close else None,

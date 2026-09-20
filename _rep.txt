@@ -1,0 +1,21 @@
+﻿服务器连接失败，请稍后再试。
+[WinError 10057] 由于套接字没有连接并且(当使用一个 sendto 调用发送数据报套接字时)没有提供地址，发送或接收数据的请求没有被接受。
+接收数据异常，请稍后再试。
+[WinError 10057] 由于套接字没有连接并且(当使用一个 sendto 调用发送数据报套接字时)没有提供地址，发送或接收数据的请求没有被接受。
+接收数据异常，请稍后再试。
+python.exe : 东财涨跌家数失败: Server disconnected without sending a response.
+所在位置 行:1 字符: 46
++ ... g\backend'; & "C:\Users\suncl\AppData\Local\Programs\Python\Python311 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (东财涨跌家数失败: Serve...ing a response.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+东财板块热点失败: Server disconnected without sending a response.
+material keys: ['breadth', 'cross_check', 'date', 'errors', 'indices', 'recent', 'sectors', 'source_chain', 'turnover']
+indices: 5
+sectors: 12
+breadth: None
+turnover: 20771.0
+source_chain: ['sina', 'tdx', 'tdx_crosscheck_ok', 'eastmoney']
+errors: []
+>>> _stock_data_ok: True

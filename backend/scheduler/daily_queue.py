@@ -124,12 +124,15 @@ def pick_columns(count: int, weights: Optional[Dict[str, int]] = None, rng: Opti
 def _day_columns(date: datetime.date) -> List[str]:
     """当日可选栏目。
 
-    复盘栏目（stock）**始终参与**：复盘对象是「上一交易日」，与今天是否交易日无关——
-    周末/节假日没有「当天交易」，正该复盘最近一个已收盘的交易日（周五）。
-    早期「非交易日排除 stock」的规则已废弃（翁老：复盘应是上一交易日，当天未结束不复盘当天）。
-    实际是否成稿由 run_pending_tasks 的数据闸（上一交易日行情可得性）兜底。
+    复盘栏目（stock）**仅交易日生成**：复盘对象是「上一交易日」（交易日 T 复盘 T-1，
+    如周四复盘周三、周一复盘上周五）。周末/节假日不建复盘选题——非交易日没有「当天交易」，
+    也就没有「当日复盘」；手动补写由 run_pending_tasks 的复盘目标闸 + 数据闸兜底。
     """
-    return enabled_columns()
+    from .calendar import is_trading_day
+    cols = enabled_columns()
+    if "stock" in cols and not is_trading_day(date):
+        cols = [c for c in cols if c != "stock"]
+    return cols
 
 
 # ---------------------------------------------------------------------------
@@ -251,8 +254,8 @@ def build_daily_tasks(date: Optional[datetime.date] = None,
     date = date or datetime.date.today()
     if isinstance(date, str):
         date = datetime.date.fromisoformat(date)
-    # 复盘对象是「上一交易日」：今天无论是否交易日，复盘最近一个已收盘的交易日。
-    # 例：周四盘前/盘中复盘周三；周一复盘上周五；周末也复盘周五。
+    # 复盘对象是「上一交易日」：交易日 T 复盘 T-1（例：周四复盘周三；周一复盘上周五）。
+    # 非交易日（周末/节假日）不建复盘任务——_day_columns 已排除 stock。
     from .calendar import previous_trading_day
     prev_td = previous_trading_day(date)
     count = max(1, min(int(count if count is not None else cfg.get("daily.articles_per_day", 3)), 10))
@@ -528,7 +531,7 @@ def _stock_review_target(topic: Optional[str], now: datetime.datetime) -> tuple:
     """
     from .calendar import previous_trading_day
     today = now.date()
-    prev_td = previous_trading_day(today)            # 上一交易日（已跳过周末/节假日/识别补班）
+    prev_td = previous_trading_day(today)            # 上一交易日（已跳过周末/节假日；补班上班日按交易所口径不算交易日）
     extracted = _review_date_of(topic) if topic else None
     # 17:00 前：强制上一交易日（无论原 topic 写的是什么）
     if now.hour < 17:
@@ -538,6 +541,28 @@ def _stock_review_target(topic: Optional[str], now: datetime.datetime) -> tuple:
         target = extracted if (extracted and extracted < today) else prev_td
     corrected = f"{target:%Y-%m-%d} A股每日复盘"
     return target, (corrected if corrected != (topic or "") else None)
+
+
+def _stock_data_ok(material: dict) -> bool:
+    """复盘数据闸（v1.5.60 加严）：指数可用 且 至少一个结构维度可用。
+
+    仅指数（历史补写日K场景：无板块/涨跌家数/资金流/涨跌停/融资/北向）视为数据严重残缺——
+    AI 会写出满篇「数据盲区」的劣质文章（线上 post 7482 教训），宁可跳过不发布。
+    """
+    if not (material.get("indices") or []):
+        return False
+    for key in ("sectors", "breadth", "main_flow", "industry_flow", "limit", "margin", "north"):
+        if material.get(key):
+            return True
+    # 成交额（亿元）>500：指数点位/涨跌幅/成交额真实，仅板块接口（东财周末常断）暂缺，放行。
+    tv = material.get("turnover")
+    if tv is not None:
+        try:
+            if float(tv) > 500:
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
 
 
 def run_topic_selection(column: Optional[str] = None) -> List[dict]:
@@ -632,7 +657,7 @@ def reorder_tasks(task_ids: List[str]) -> List[dict]:
 def run_pending_tasks(column: Optional[str] = None) -> List[dict]:
     """执行 queued 任务：跑 AI 流水线生成内容（Step1-7）→ 状态 ready/failed/skipped。
 
-    - 非交易日自动排除 stock（build 时已排除；此处二次校验兜底）
+    - stock 任务仅交易日由 build 生成；此处按复盘目标闸 + 数据闸兜底（非交易日无新 stock 任务）
     - 写文总开关 off 时任务直接跳过（不消耗 Token）
     - 生成完成后由调用方（CLI --run）触发 publish_due_tasks() 发布到点任务
     """
@@ -694,12 +719,12 @@ def run_pending_tasks(column: Optional[str] = None) -> List[dict]:
                     material = {"items": material}
             if row.get("topic"):
                 material["topic"] = row["topic"]
-            # 复盘数据闸：目标日期数据不可用 → 跳过，不发布旧数据/编数据
-            if is_stock and not (material.get("indices") or []):
+            # 复盘数据闸：目标日期数据不可用或严重残缺（仅指数）→ 跳过，不发布旧数据/编数据
+            if is_stock and not _stock_data_ok(material):
                 db.execute("UPDATE tasks SET status='skipped', error=?, updated_at=? WHERE task_id=?",
-                           ("目标日期行情数据不可用（数据源失败），复盘跳过", db.now_iso(), task_id))
+                           ("目标日期行情数据不可用或严重残缺（仅指数无结构数据），复盘跳过", db.now_iso(), task_id))
                 results.append({"task_id": task_id, "ok": False, "status": "skipped",
-                                "error": "目标日期行情数据不可用，复盘跳过"})
+                                "error": "目标日期行情数据不可用或严重残缺，复盘跳过"})
                 continue
             task = pipe.run(col, material=material, task_id=task_id, publish_date=row.get("publish_date"))
             db.upsert_task(task)
@@ -776,12 +801,12 @@ def _run_task_now_inner(task_id: str) -> dict:
     if row.get("topic"):
         material["topic"] = row["topic"]
 
-    # 复盘数据闸：目标日期行情数据不可用 → 跳过，绝不发布旧数据/编数据
-    if is_stock and not (material.get("indices") or []):
+    # 复盘数据闸：目标日期数据不可用或严重残缺（仅指数）→ 跳过，绝不发布旧数据/编数据
+    if is_stock and not _stock_data_ok(material):
         db.execute("UPDATE tasks SET status='skipped', error=?, updated_at=? WHERE task_id=?",
-                   ("目标日期行情数据不可用（数据源失败），复盘跳过", db.now_iso(), task_id))
+                   ("目标日期行情数据不可用或严重残缺（数据源失败），复盘跳过", db.now_iso(), task_id))
         return {"ok": False, "status": "skipped",
-                "error": "目标日期行情数据不可用（数据源失败），复盘跳过"}
+                "error": "目标日期行情数据不可用或严重残缺（数据源失败），复盘跳过"}
     # 数据日期与复盘日期必须一致（历史复盘用历史数据，当日复盘用当日数据）
     if is_stock:
         data_date = str(material.get("date") or "")

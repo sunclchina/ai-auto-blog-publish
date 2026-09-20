@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """复盘选题逻辑测试：复盘对象应为「上一交易日」，17:00 前执行一律改写上一交易日。
 
-覆盖（翁老规则）：
+覆盖（翁老规则 + 交易所日历口径）：
 1. build_daily_tasks 对 stock 栏目生成的 topic 占位日期 = previous_trading_day(build_date)
 2. _review_date_of 能从该 topic 还原出同一目标日期
-3. 非交易日（周末/节假日）不再从候选栏目排除 stock（周末也该复盘周五）
-4. 日历边界：周一上一交易日为上周五；春节后首交易日上一交易日为补班日
+3. 非交易日（周末/节假日）从候选栏目排除 stock（不建复盘任务；交易日 T 复盘 T-1）
+4. 日历边界：周一上一交易日为上周五；春节后首交易日上一交易日为节前最后交易日
+   （补班上班日不算交易日，按交易所休市公告）
 5. _stock_review_target 硬闸门：
    - 17:00 前执行：无论 topic 写什么，target 强制 = 上一交易日
    - 17:00 后执行：topic 指定过去交易日则尊重，否则上一交易日
@@ -78,17 +79,29 @@ class TestReviewPrevTradingDay(unittest.TestCase):
         topic = self._stock_topic(datetime.date(2026, 8, 17))
         self.assertEqual(topic, "2026-08-14 A股每日复盘")
 
-    def test_weekend_reviews_friday(self):
+    def test_weekend_no_stock_topic(self):
+        # 非交易日（周末）不建复盘任务：8/22（六）、8/23（日）build 无 stock 选题
         for wd in (datetime.date(2026, 8, 22), datetime.date(2026, 8, 23)):
-            self.assertEqual(self._stock_topic(wd), "2026-08-21 A股每日复盘")
+            self.assertIsNone(self._stock_topic(wd))
 
-    def test_spring_festival_makeup(self):
-        # 春节后首交易日（周一 2/16）的上一交易日 = 2/14 补班日（calendar 已正确识别调休）
-        self.assertEqual(previous_trading_day(datetime.date(2026, 2, 16)), datetime.date(2026, 2, 14))
+    def test_spring_festival_prev_td(self):
+        # 春节后首交易日（周一 2/16）的上一交易日 = 2/13（周五）：
+        # 2/14 虽是国务院补班上班日，但交易所公告为周末休市（上证公告〔2025〕45号），不算交易日
+        self.assertEqual(previous_trading_day(datetime.date(2026, 2, 16)), datetime.date(2026, 2, 13))
 
-    def test_non_trading_day_not_excluded_from_columns(self):
-        cols = dq._day_columns(datetime.date(2026, 8, 22))
-        self.assertIn("stock", cols)
+    def test_non_trading_day_excludes_stock_from_columns(self):
+        # 非交易日（8/22 周六）候选栏目排除 stock；交易日（8/20 周四）保留
+        self.assertNotIn("stock", dq._day_columns(datetime.date(2026, 8, 22)))
+        self.assertIn("stock", dq._day_columns(datetime.date(2026, 8, 20)))
+
+    def test_sep20_makeup_sunday_not_trading_day(self):
+        # 2026-09-20（周日）是国庆调休补班上班日，但交易所公告明确周末休市：
+        # 不算交易日、不建复盘任务；9/21（周一）build 复盘 9/18（周五）
+        from scheduler import calendar as cal
+        self.assertFalse(cal.is_trading_day(datetime.date(2026, 9, 20)))
+        self.assertIsNone(self._stock_topic(datetime.date(2026, 9, 20)))
+        topic = self._stock_topic(datetime.date(2026, 9, 21))
+        self.assertEqual(dq._review_date_of(topic), datetime.date(2026, 9, 18))
 
     # ---------------- 硬闸门 _stock_review_target ----------------
     def test_gate_before_17h_forces_prev_td(self):

@@ -1,10 +1,14 @@
 <?php
 /**
- * class-abp-stock.php — A股复盘栏目：交易日历 + 行情数据采集 + 生成发布（v1.5.4）。
+ * class-abp-stock.php — A股复盘栏目：交易日历 + 行情数据采集 + 生成发布（v1.5.6）。
  *
  * 翁老原则：
- *   - 仅交易日选题（周末/节假日休市）；行情数据即时联网采集（新浪/东财），禁止编造；
- *   - 标题 = 当日日期 + 「A股市场：」 + 副标题，**先写正文、后定副标题**（基于正文内容特点，6-14 字），
+ *   - 仅交易日选题（周末/节假日休市；调休补班上班日按交易所公告不算交易日）；
+ *   - 复盘对象 = 「上一交易日」：交易日 T 建任务复盘 T-1，标题/查重均以复盘日为准
+ *     （当天交易未结束不复盘当天；与 Python 后端 daily_queue 规则一致）；
+ *   - 行情数据即时联网采集（新浪/东财），禁止编造；目标复盘日数据不可用或严重残缺
+ *     （仅指数、无板块/涨跌家数/资金流等结构数据）→ 跳过，不发布空白/「数据盲区」报告；
+ *   - 标题 = 复盘日日期 + 「A股市场：」 + 副标题，**先写正文、后定副标题**（基于正文内容特点，6-14 字），
  *     副标题生成失败回落「收盘综述」；
  *   - 数据缺失字段如实注明「该数据暂缺」（stock.md 规范）。
  *
@@ -20,6 +24,11 @@ class ABP_Stock {
 	/**
 	 * A股休市日表（2025-2027，YYYY-MM-DD；仅法定休市，周末另行判断）。
 	 *
+	 * 2026 年口径：沪深北交易所《2026年部分节假日休市安排》公告（上证公告〔2025〕45号）；
+	 * 国务院调休补班上班日（1/4、2/14、2/28、5/9、9/20、10/10）交易所均列为周末休市，
+	 * 不算交易日，不入表（周末由 is_trading_day 另行判断）。
+	 * 2027 年为暂定推算，正式通知/交易所公告发布后必须核对更新。
+	 *
 	 * @return string[]
 	 */
 	public static function holidays() {
@@ -28,11 +37,11 @@ class ABP_Stock {
 			'2025-01-01', '2025-01-28', '2025-01-29', '2025-01-30', '2025-01-31', '2025-02-03', '2025-02-04',
 			'2025-04-04', '2025-05-01', '2025-05-02', '2025-05-05', '2025-06-02', '2025-10-01', '2025-10-02',
 			'2025-10-03', '2025-10-06', '2025-10-07', '2025-10-08',
-			// 2026
+			// 2026（交易所公告：春节 2/15-2/23 休市、2/24 开市；国庆 10/1-10/7 休市、10/8 开市）
 			'2026-01-01', '2026-01-02', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20',
-			'2026-02-23', '2026-02-24', '2026-04-06', '2026-05-01', '2026-05-04', '2026-05-05', '2026-06-19',
-			'2026-09-25', '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08',
-			// 2027
+			'2026-02-23', '2026-04-06', '2026-05-01', '2026-05-04', '2026-05-05', '2026-06-19',
+			'2026-09-25', '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07',
+			// 2027（暂定）
 			'2027-01-01', '2027-01-04', '2027-02-08', '2027-02-09', '2027-02-10', '2027-02-11', '2027-02-12',
 			'2027-02-15', '2027-04-05', '2027-05-03', '2027-05-04', '2027-05-05', '2027-06-14', '2027-09-17',
 			'2027-10-01', '2027-10-04', '2027-10-05', '2027-10-06', '2027-10-07', '2027-10-08',
@@ -56,6 +65,63 @@ class ABP_Stock {
 			return false;
 		}
 		return true;
+	}
+
+	/**
+	 * 上一交易日（跳过周末/休市日；调休补班上班日不算交易日，按交易所公告）。
+	 *
+	 * @param int|null $ts 时间戳（默认当前）。
+	 * @return int 上一交易日 00:00:00 的时间戳。
+	 */
+	public static function previous_trading_day( $ts = null ) {
+		$ts = $ts ? (int) $ts : current_time( 'timestamp' );
+		for ( $i = 0; $i < 30; $i++ ) {
+			$ts -= DAY_IN_SECONDS;
+			if ( self::is_trading_day( $ts ) ) {
+				return $ts;
+			}
+		}
+		return $ts;
+	}
+
+	/**
+	 * 解析复盘目标日期（统一规则：复盘=上一交易日）。
+	 *
+	 * 优先级：1) topic 显式日期（YYYY-MM-DD / YYYY年M月D日 等，补建/人工指定）；
+	 * 2) task_id 日期（YYYYMMDD-column-NNN，兼容旧任务）；3) 无 → 空串（调用方回退上一交易日）。
+	 *
+	 * @param array $row 任务行。
+	 * @return string Y-m-d 或空串。
+	 */
+	public static function review_date_of( $row ) {
+		$topic = isset( $row['topic'] ) ? (string) $row['topic'] : '';
+		// 纯 ASCII 模式：\D{1,3} 吃掉 1-3 个非数字分隔符（覆盖 年/月/日/-/./ / 等），
+		// 避免多字节「年月日」进入模式后触发 PCRE2 UTF-8 自动模式的怪癖（实测 \s*日? 会导致整体失配）。
+		if ( preg_match( '/(\d{4})\D{1,3}(\d{1,2})\D{1,3}(\d{1,2})/', $topic, $m ) ) {
+			$d = sprintf( '%04d-%02d-%02d', (int) $m[1], (int) $m[2], (int) $m[3] );
+			if ( self::valid_date( $d ) ) {
+				return $d;
+			}
+		}
+		if ( isset( $row['task_id'] ) && preg_match( '/^(\d{4})(\d{2})(\d{2})/', (string) $row['task_id'], $m ) ) {
+			$d = $m[1] . '-' . $m[2] . '-' . $m[3];
+			if ( self::valid_date( $d ) ) {
+				return $d;
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * 校验 Y-m-d 是否为真实日历日。
+	 *
+	 * @param string $d Y-m-d。
+	 * @return bool
+	 */
+	private static function valid_date( $d ) {
+		// 按 UTC 零点解析，保证与 gmdate 回读一致（避免服务器时区把日期偏移一天）。
+		$t = strtotime( $d . ' 00:00:00 UTC' );
+		return $t && gmdate( 'Y-m-d', $t ) === $d;
 	}
 
 	/**
@@ -139,8 +205,12 @@ class ABP_Stock {
 			'sz399905' => '中证500',
 		);
 		$out = array();
+		// 历史复盘需覆盖目标日期：按距今天数动态扩窗（每交易日约 1 根K线；上限 250 ≈ 1 年）。
+		// 目标日期超出窗口时取不到 → collect_data 返回空 → generate 数据闸跳过，不发布空白报告。
+		$days    = max( 0, (int) ceil( ( time() - (int) strtotime( $date ) ) / DAY_IN_SECONDS ) );
+		$datalen = max( 15, min( 250, $days + 20 ) );
 		foreach ( $codes as $code => $name ) {
-			$url = 'https://quotes.sina.cn/cn/api/jsonp_v2.php/var%20_data=/CN_MarketDataService.getKLineData?symbol=' . $code . '&scale=240&ma=no&datalen=15';
+			$url = 'https://quotes.sina.cn/cn/api/jsonp_v2.php/var%20_data=/CN_MarketDataService.getKLineData?symbol=' . $code . '&scale=240&ma=no&datalen=' . $datalen;
 			$resp = wp_remote_get( $url, array( 'timeout' => 12, 'sslverify' => false, 'headers' => array( 'User-Agent' => 'Mozilla/5.0' ) ) );
 			if ( is_wp_error( $resp ) || 200 !== (int) wp_remote_retrieve_response_code( $resp ) ) {
 				continue;
@@ -490,21 +560,61 @@ class ABP_Stock {
 	}
 
 	/**
+	 * 复盘数据充足性判定（数据闸，v1.5.6）。
+	 *
+	 * 仅指数（历史补写日K场景：无板块/涨跌家数/资金流）视为数据严重残缺——AI 会写出满篇
+	 * 「数据盲区」的劣质文章（线上 post 7482 教训），宁可跳过不发布。
+	 *
+	 * @param array $data collect_data 输出。
+	 * @return bool true=数据充足可生成。
+	 */
+	public static function data_sufficient( $data ) {
+		if ( empty( $data['indices'] ) ) {
+			return false;
+		}
+		// 至少一个结构维度可用：板块 / 涨跌家数 / 主力资金 / 行业资金 / 涨跌停 / 融资 / 北向。
+		foreach ( array( 'sectors', 'breadth', 'main_flow', 'industry_flow', 'limit', 'margin', 'north' ) as $k ) {
+			if ( ! empty( $data[ $k ] ) ) {
+				return true;
+			}
+		}
+		// 两市成交额（亿元）>500：来自指数成交额汇总的真实值，仅板块接口暂缺也放行。
+		if ( ! empty( $data['turnover'] ) && (float) $data['turnover'] > 500 ) {
+			return true;
+		}
+		return false;
+	}
+
+	/**
 	 * 生成并发布一篇复盘（先正文 → 后副标题 → 定标题 → 发布）。
 	 *
 	 * @param array $row 任务行。
 	 * @return array{ok:bool, post_id?:int, error?:string}
 	 */
 	public static function generate( $row ) {
-		// 任务日期：从 task_id（YYYYMMDD-column-NNN）解析，补建的昨日任务用历史行情。
-		$task_date = '';
-		if ( isset( $row['task_id'] ) && preg_match( '/^(\d{4})(\d{2})(\d{2})/', (string) $row['task_id'], $m ) ) {
-			$task_date = $m[1] . '-' . $m[2] . '-' . $m[3];
+		// 复盘目标日期（统一规则：复盘=上一交易日）：
+		// 1) topic 显式日期（补建/人工指定）优先；2) 其次 task_id 日期（兼容旧任务）；
+		// 3) 否则取上一交易日。今天未结束绝不复盘今天（对齐 Python 后端 17:00 硬闸门）。
+		$review_date = self::review_date_of( $row );
+		$today       = gmdate( 'Y-m-d', current_time( 'timestamp' ) );
+		if ( '' === $review_date || $review_date >= $today ) {
+			$review_date = gmdate( 'Y-m-d', self::previous_trading_day() );
 		}
+
+		$data = self::collect_data( $review_date );
+		// 数据闸（对齐 Python 后端）：复盘日数据不可用或严重残缺（仅指数、无板块/资金/涨跌家数等
+		// 结构数据）→ 跳过，不发布空白/「数据盲区」文章。先于查重执行，避免数据失败时误删已有文章。
+		if ( ! self::data_sufficient( $data ) ) {
+			return array(
+				'ok'      => false,
+				'skipped' => true,
+				'error'   => '目标日期行情数据不可用或严重残缺（' . $review_date . '），复盘跳过，未发布',
+			);
+		}
+
 		// 复盘查重（翁老规则）：该复盘日已有文章 = 对结果不满意 → 删除旧文，覆盖重做。
-		// 与 REST 通道一致（兼容中文标题日期格式，如「2026年8月10日」）。
-		$dup_date = $task_date ? $task_date : gmdate( 'Y-m-d', current_time( 'timestamp' ) );
-		$dedup    = ABP_Publish::review_date_duplicate( $dup_date );
+		// 与 REST 通道一致（兼容中文标题日期格式，如「2026年8月20日」）。
+		$dedup = ABP_Publish::review_date_duplicate( $review_date );
 		if ( $dedup['duplicate'] ) {
 			$old_id = (int) $dedup['similar_post_id'];
 			wp_delete_post( $old_id, true );
@@ -512,7 +622,6 @@ class ABP_Stock {
 				'该复盘日已有文章 ID ' . $old_id . '（' . $dedup['similar_title'] . '），已删除并覆盖重做' );
 		}
 
-		$data = self::collect_data( $task_date ? $task_date : null );
 		$prompts = include ABP_PLUGIN_DIR . 'includes/data-prompts.php';
 		$prompt  = isset( $prompts['stock'] ) ? $prompts['stock'] : '';
 
@@ -550,8 +659,8 @@ class ABP_Stock {
 		$parsed_excerpt = $parsed['excerpt'];
 
 		$subtitle = self::make_subtitle( $html );
-		// 标题日期用任务日期（补建的昨日复盘标题写昨日，不写今天）。
-		$date_cn  = $task_date ? date( 'Y年n月j日', strtotime( $task_date ) ) : gmdate( 'Y年n月j日', current_time( 'timestamp' ) );
+		// 标题日期用复盘日（补建的昨日复盘标题写昨日，不写今天；UTC 零点解析保证日期不偏移）。
+		$date_cn  = gmdate( 'Y年n月j日', strtotime( $review_date . ' 00:00:00 UTC' ) );
 		$title    = $date_cn . ' A股市场：' . ( '' !== $subtitle ? $subtitle : '收盘综述' );
 
 		$payload = array(
