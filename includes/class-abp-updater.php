@@ -59,7 +59,7 @@ class ABP_Updater {
 		add_filter( 'http_request_host_is_external', array( __CLASS__, 'allow_github_host_external' ), 10, 3 );
 		// v1.5.64：装新包前先把旧插件目录改名备份（WP clear_destination 删不掉旧目录文件时，
 		// move 到非空目标会失败报「无法安装这个包」）。
-		add_action( 'upgrader_pre_install', array( __CLASS__, 'pre_install_backup_old' ), 10, 2 );
+		add_action( 'upgrader_pre_install', array( __CLASS__, 'pre_install_backup_old' ), 10, 1 );
 		// v1.5.9：升级完成/失败写日志 + 清 Release 缓存；独立每日检查定时。
 		add_action( 'upgrader_process_complete', array( __CLASS__, 'upgrade_done' ), 10, 2 );
 		self::schedule();
@@ -146,13 +146,13 @@ class ABP_Updater {
 	 * @param array $hook_extra   额外参数（含 plugin basename）。
 	 * @return mixed
 	 */
-	public static function pre_install_backup_old( $return, $hook_extra ) {
+	public static function pre_install_backup_old( $hook_extra ) {
 		if ( ! self::is_our_upgrade( $hook_extra ) ) {
-			return $return;
+			return;
 		}
 		global $wp_filesystem;
 		if ( ! $wp_filesystem ) {
-			return $return;
+			return;
 		}
 		$old = WP_PLUGIN_DIR . '/' . dirname( self::plugin_basename() );
 		if ( $wp_filesystem->exists( $old ) ) {
@@ -160,7 +160,6 @@ class ABP_Updater {
 				$wp_filesystem->move( $old, $old . '.bak-' . time() );
 			}
 		}
-		return $return;
 	}
 
 	/**

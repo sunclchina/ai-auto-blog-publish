@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.65
+Stable tag: 1.5.66
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -71,6 +71,10 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.66 =
+* 修 pre_install 钩子签名：upgrader_pre_install 是 do_action 只传 1 个参数，
+  之前写成 2 个参数导致 hook_extra 错位、钩子实际没执行。
 
 = 1.5.65 =
 * 测试在线升级通道（pre_install 钩子备份旧目录）。

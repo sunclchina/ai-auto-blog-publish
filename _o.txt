@@ -1,5 +1,5 @@
 ﻿OK
-[A-Blog] version: 1.5.65
+[A-Blog] version: 1.5.66
 [1/4] WP plugin copied
 [2/4] backend copied (secrets excluded)
 [3/4] deploy scripts bundled
@@ -9,4 +9,4 @@ OK: top-level = ai-auto-blog-publish
 OK: no credentials/secrets
 OK: my-project.git-credentials excluded
 OK: main plugin file present
-PACKAGE OK: D:\my-project\A-Blog/dist/ai-auto-blog-publish-v1.5.65.zip (289 KB)
+PACKAGE OK: D:\my-project\A-Blog/dist/ai-auto-blog-publish-v1.5.66.zip (289 KB)
