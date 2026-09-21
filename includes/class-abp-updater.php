@@ -57,9 +57,6 @@ class ABP_Updater {
 		// （如本机 hosts 把 GitHub 指向 127.0.0.1），默认拒绝并报「URL 无效。」。
 		// 对 GitHub 官方下载域显式放行（不影响其它域名的安全校验）。
 		add_filter( 'http_request_host_is_external', array( __CLASS__, 'allow_github_host_external' ), 10, 3 );
-		// v1.5.64：装新包前先把旧插件目录改名备份（WP clear_destination 删不掉旧目录文件时，
-		// move 到非空目标会失败报「无法安装这个包」）。
-		add_action( 'upgrader_pre_install', array( __CLASS__, 'pre_install_backup_old' ), 10, 1 );
 		// v1.5.9：升级完成/失败写日志 + 清 Release 缓存；独立每日检查定时。
 		add_action( 'upgrader_process_complete', array( __CLASS__, 'upgrade_done' ), 10, 2 );
 		self::schedule();
@@ -136,30 +133,6 @@ class ABP_Updater {
 			return false;
 		}
 		return self::plugin_basename() === (string) $hook_extra['plugin'];
-	}
-
-	/**
-	 * 装新包前备份旧插件目录：先尝试删除；删不掉（文件被锁/权限不对）就改名为 .bak-时间戳，
-	 * 腾出 plugins/ai-auto-blog-publish 目标路径，避免 WP move 到非空目录报「无法安装这个包」。
-	 *
-	 * @param mixed $return       WP 预安装返回值（null 表示继续）。
-	 * @param array $hook_extra   额外参数（含 plugin basename）。
-	 * @return mixed
-	 */
-	public static function pre_install_backup_old( $hook_extra ) {
-		if ( ! self::is_our_upgrade( $hook_extra ) ) {
-			return;
-		}
-		global $wp_filesystem;
-		if ( ! $wp_filesystem ) {
-			return;
-		}
-		$old = WP_PLUGIN_DIR . '/' . dirname( self::plugin_basename() );
-		if ( $wp_filesystem->exists( $old ) ) {
-			if ( ! $wp_filesystem->delete( $old, true ) ) {
-				$wp_filesystem->move( $old, $old . '.bak-' . time() );
-			}
-		}
 	}
 
 	/**
