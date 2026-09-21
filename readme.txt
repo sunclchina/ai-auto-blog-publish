@@ -4,7 +4,7 @@ Tags: ai, blog, automation, rest-api, simhash, deepseek
 Requires at least: 5.6
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.62
+Stable tag: 1.5.63
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -71,6 +71,10 @@ A-Blog 是**自足功能插件**：激活即用，不依赖任何外部服务（
 支持 base64 data URI（data:image/webp;base64,...）与 http(s) URL。推荐 1280×720 WebP（青简主题 banner 尺寸）。
 
 == Changelog ==
+
+= 1.5.63 =
+* 修复在线升级「无法安装这个包」：fix_source_dir 删除旧插件目录失败时改名为 .bak-时间戳，
+  腾出目标路径再移动新目录（旧目录里有文件被锁/权限不对时不再卡死）
 
 = 1.5.62 =
 * 仅修 bug：数据闸放宽成交额、API Token 重新生成写不进、market 历史补写统一数据源。

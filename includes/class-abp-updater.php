@@ -388,9 +388,15 @@ class ABP_Updater {
 		if ( $src !== rtrim( $new, '/\\' ) ) {
 			global $wp_filesystem;
 			if ( $wp_filesystem ) {
-				$wp_filesystem->delete( $new, true );
+				// 先尝试删除旧目录；删不掉（文件被锁/权限不对）就改名为 .bak-时间戳，
+				// 腾出目标路径再移动新目录，避免「无法安装这个包」。
+				if ( $wp_filesystem->exists( $new ) ) {
+					if ( ! $wp_filesystem->delete( $new, true ) ) {
+						$wp_filesystem->move( $new, $new . '.bak-' . time() );
+					}
+				}
 				if ( ! $wp_filesystem->move( $src, $new ) ) {
-					return $source; // 重命名失败，交回 WP 处理（大概率报错，但不至于破坏站点）。
+					return $source;
 				}
 			} elseif ( ! @rename( $src, $new ) ) { // phpcs:ignore
 				return $source;
